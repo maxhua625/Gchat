@@ -1,12 +1,12 @@
 import axios from "axios";
 
-// 创建一个没有固定 baseURL 的通用 axios 实例
+// 这个实例的唯一目标就是我们自己的后端代理服务器
 const service = axios.create({
-  // baseURL: '/',  <-- 移除这一行，让实例更灵活
+  baseURL: "http://localhost:3000", // 硬编码指向我们的后端
   timeout: 60000,
 });
 
-// 请求拦截器可以保持不变
+// 请求拦截器保持不变
 service.interceptors.request.use(
   (config) => {
     return config;
@@ -17,15 +17,16 @@ service.interceptors.request.use(
   }
 );
 
-// 响应拦截器可以保持不变
+// 响应拦截器保持不变
 service.interceptors.response.use(
   (response) => {
     return response.data;
   },
   (error) => {
-    console.error("Response Error:", error);
+    // 现在可以更清晰地看到来自后端的错误
+    console.error("Response Error from Backend:", error);
     if (error.response) {
-      console.error("Error data:", error.response.data);
+      console.error("Backend Error data:", error.response.data);
     }
     return Promise.reject(error);
   }
