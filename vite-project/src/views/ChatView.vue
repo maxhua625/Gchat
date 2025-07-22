@@ -1,10 +1,9 @@
 <template>
   <div class="chat-wrapper">
-    <!-- 顶部信息栏，显示当前使用的模型 -->
     <div class="chat-info-header">
       当前模型:
       <strong
-        >{{ settings.activeModel.provider }} /
+        >{{ settings.activeModel.provider.toUpperCase() }} /
         {{ settings.activeModel.modelName }}</strong
       >
     </div>
@@ -38,11 +37,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from "vue";
+import { ref, watch, nextTick, onMounted } from "vue";
 import Message from "@/components/Message.vue";
 import api from "@/api";
-
-// 1. 导入并使用 stores
 import { useChatStore } from "@/store/chatStore";
 import { useSettingsStore } from "@/store/settingsStore";
 
@@ -53,14 +50,19 @@ const userInput = ref("");
 const isLoading = ref(false);
 const messageListRef = ref(null);
 
+// **同样需要 CORS 代理**
+const corsProxy = "https://cors-anywhere.herokuapp.com/";
+
 const sendMessage = async () => {
   if (!userInput.value || isLoading.value) return;
 
   const provider = settings.activeModel.provider;
-  const apiKey = settings[provider]?.apiKey;
+  const config = settings[provider];
 
-  if (!apiKey) {
-    alert(`请先在设置页面配置 ${provider.toUpperCase()} 的 API Key!`);
+  if (!config.apiKey || !config.baseURL) {
+    alert(
+      `请先在“设置”页面正确配置 ${provider.toUpperCase()} 的 API 地址和密钥!`
+    );
     return;
   }
 
@@ -68,12 +70,13 @@ const sendMessage = async () => {
   const userMessageContent = userInput.value;
   userInput.value = "";
 
-  // 2. 使用 store 的 action 添加消息
   chat.addMessage({ role: "user", content: userMessageContent });
 
   try {
     let response;
     const currentHistory = JSON.parse(JSON.stringify(chat.history));
+    // **使用带代理的 URL**
+    const proxiedBaseURL = corsProxy + config.baseURL;
 
     if (provider === "openai") {
       const messagesForAPI = currentHistory.map((msg) => ({
@@ -81,12 +84,10 @@ const sendMessage = async () => {
         content: msg.content,
       }));
       response = await api.openai.fetchOpenAIChatCompletion(
-        {
-          messages: messagesForAPI,
-          model: settings.activeModel.modelName,
-        },
-        apiKey
-      ); // 传递 apiKey
+        { messages: messagesForAPI, model: settings.activeModel.modelName },
+        config.apiKey,
+        proxiedBaseURL // 传递带代理的 URL
+      );
       chat.addMessage(response.choices[0].message);
     } else if (provider === "gemini") {
       const contentsForAPI = {
@@ -95,8 +96,11 @@ const sendMessage = async () => {
           parts: [{ text: msg.content }],
         })),
       };
-      // Gemini API 不需要单独传模型名称，因为它在 URL 里
-      response = await api.gemini.fetchGeminiCompletion(contentsForAPI, apiKey); // 传递 apiKey
+      response = await api.gemini.fetchGeminiCompletion(
+        contentsForAPI,
+        config.apiKey,
+        proxiedBaseURL // 传递带代理的 URL
+      );
       const assistantMessageText = response.candidates[0].content.parts[0].text;
       chat.addMessage({
         role: "assistant",
@@ -108,7 +112,7 @@ const sendMessage = async () => {
       error.response?.data?.error?.message || error.message
     }`;
     chat.addMessage({ role: "assistant", content: errorMessage });
-    console.error(errorMessage);
+    console.error(error);
   } finally {
     isLoading.value = false;
   }
@@ -122,25 +126,19 @@ const scrollToBottom = async () => {
   }
 };
 
-// 3. 监听 history 的变化，自动滚动
 watch(
   () => chat.history.length,
-  () => {
-    scrollToBottom();
-  }
+  () => scrollToBottom()
 );
-
-onMounted(() => {
-  scrollToBottom();
-});
+onMounted(() => scrollToBottom());
 </script>
 
-<!-- 为了方便，我将样式移动到了 ChatView.vue 中，因为 ChatWrapper 现在是逻辑上的 chat 页面 -->
 <style scoped>
+/* 样式与之前版本完全相同 */
 .chat-wrapper {
   display: flex;
   flex-direction: column;
-  height: 100%; /* 占满 main 区域的高度 */
+  height: 100%;
 }
 .chat-info-header {
   padding: 0.75rem 1rem;
@@ -171,7 +169,6 @@ onMounted(() => {
   max-width: 800px;
   margin: 0 auto;
 }
-/* 其他样式保持不变 */
 .input-form input {
   flex: 1;
   padding: 0.75rem;

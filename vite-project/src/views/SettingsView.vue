@@ -5,7 +5,6 @@
     <!-- OpenAI 设置区域 -->
     <div class="settings-card">
       <h3>OpenAI API</h3>
-      <!-- 新增：URL 输入框 -->
       <div class="form-group">
         <label for="openai-url">API 地址</label>
         <input
@@ -25,7 +24,10 @@
         />
       </div>
       <div class="button-group">
-        <button @click="testConnection('openai')" :disabled="testing.openai">
+        <button
+          @click="testConnection('openai')"
+          :disabled="testing.openai || !settings.openai.baseURL"
+        >
           {{ testing.openai ? "测试中..." : "测试连接" }}
         </button>
         <span
@@ -36,7 +38,7 @@
         >
       </div>
 
-      <!-- 连接成功后显示模型选择 -->
+      <!-- **这里是修正后的模型选择框** -->
       <div v-if="settings.openai.connected" class="form-group model-selector">
         <label for="openai-model">选择默认模型</label>
         <select
@@ -47,7 +49,10 @@
             v-for="model in settings.openai.models"
             :key="model.id"
             :value="model.id"
-            :selected="model.id === settings.activeModel.modelName"
+            :selected="
+              model.id === settings.activeModel.modelName &&
+              settings.activeModel.provider === 'openai'
+            "
           >
             {{ model.id }}
           </option>
@@ -58,7 +63,6 @@
     <!-- Gemini 设置区域 -->
     <div class="settings-card">
       <h3>Google Gemini API</h3>
-      <!-- 新增：URL 输入框 -->
       <div class="form-group">
         <label for="gemini-url">API 地址</label>
         <input
@@ -78,7 +82,10 @@
         />
       </div>
       <div class="button-group">
-        <button @click="testConnection('gemini')" :disabled="testing.gemini">
+        <button
+          @click="testConnection('gemini')"
+          :disabled="testing.gemini || !settings.gemini.baseURL"
+        >
           {{ testing.gemini ? "测试中..." : "测试连接" }}
         </button>
         <span
@@ -89,7 +96,7 @@
         >
       </div>
 
-      <!-- 连接成功后显示模型选择 -->
+      <!-- **这里是修正后的模型选择框** -->
       <div v-if="settings.gemini.connected" class="form-group model-selector">
         <label for="gemini-model">选择默认模型</label>
         <select
@@ -101,7 +108,8 @@
             :key="model.name"
             :value="model.name.split('/')[1]"
             :selected="
-              model.name.split('/')[1] === settings.activeModel.modelName
+              model.name.split('/')[1] === settings.activeModel.modelName &&
+              settings.activeModel.provider === 'gemini'
             "
           >
             {{ model.name.split("/")[1] }}
@@ -111,6 +119,9 @@
     </div>
 
     <p class="info">所有设置将自动保存在您的浏览器中。</p>
+    <p class="info cors-info">
+      注意：为了解决浏览器跨域问题，所有请求将通过一个公共代理服务进行。
+    </p>
   </div>
 </template>
 
@@ -120,30 +131,28 @@ import { useSettingsStore } from "@/store/settingsStore";
 import api from "@/api";
 
 const settings = useSettingsStore();
+const testing = ref({ openai: false, gemini: false });
 
-const testing = ref({
-  openai: false,
-  gemini: false,
-});
+// **这是解决 CORS 问题的关键**
+const corsProxy = "https://cors-anywhere.herokuapp.com/";
 
 const testConnection = async (provider) => {
   testing.value[provider] = true;
-  settings[provider].connected = false; // 重置连接状态
+  settings[provider].connected = false;
 
   const apiKey = settings[provider].apiKey;
-  const baseURL = settings[provider].baseURL;
+  // **将用户输入的 URL 与 CORS 代理地址拼接**
+  const baseURL = corsProxy + settings[provider].baseURL;
 
   try {
     let response;
     if (provider === "openai") {
       response = await api.openai.fetchOpenAIModels(apiKey, baseURL);
-      // 过滤出 gpt 模型并保存
       settings.openai.models = response.data
         .filter((m) => m.id.includes("gpt"))
         .sort((a, b) => b.id.localeCompare(a.id));
     } else if (provider === "gemini") {
       response = await api.gemini.fetchGeminiModels(apiKey, baseURL);
-      // 过滤出包含 generateContent 的模型
       settings.gemini.models = response.models.filter((m) =>
         m.supportedGenerationMethods.includes("generateContent")
       );
@@ -151,21 +160,21 @@ const testConnection = async (provider) => {
     settings[provider].connected = true;
     alert(`${provider.toUpperCase()} 连接成功!`);
   } catch (error) {
-    alert(`连接失败: ${error.message}`);
+    alert(`连接失败: ${error.message}\n请检查 API 地址、密钥以及网络连接。`);
     console.error(error);
   } finally {
     testing.value[provider] = false;
   }
 };
 
-// 更新当前激活的模型
 const updateActiveModel = (provider, modelName) => {
   settings.activeModel = { provider, modelName };
-  alert(`默认模型已切换为: ${provider} - ${modelName}`);
+  alert(`默认模型已切换为: ${provider.toUpperCase()} - ${modelName}`);
 };
 </script>
 
 <style scoped>
+/* 样式与之前基本相同，只增加一个 cors-info 的样式 */
 .settings-page {
   padding: 2rem;
   max-width: 800px;
@@ -197,7 +206,7 @@ select {
   padding: 0.75rem;
   border: 1px solid #ccc;
   border-radius: 4px;
-  box-sizing: border-box; /* 确保 padding 不会撑大宽度 */
+  box-sizing: border-box;
 }
 .button-group {
   display: flex;
@@ -222,5 +231,9 @@ button:disabled {
 .info {
   text-align: center;
   color: #888;
+}
+.cors-info {
+  font-size: 0.8rem;
+  margin-top: 2rem;
 }
 </style>
