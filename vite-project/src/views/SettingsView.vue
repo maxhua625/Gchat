@@ -1,154 +1,189 @@
-<!-- src/views/SettingsView.vue -->
 <template>
-  <div class="settings-view">
+  <div class="settings-page">
     <h2>应用设置</h2>
 
-    <!-- 新增：文件操作按钮 -->
-    <div class="file-operations">
-      <el-button type="primary" @click="handleExport">导出配置到文件</el-button>
-      <el-button type="success" @click="triggerFileInput"
-        >从文件导入配置</el-button
-      >
-      <!-- 隐藏的文件输入框，通过按钮触发 -->
-      <input
-        type="file"
-        ref="fileInput"
-        @change="handleImport"
-        style="display: none"
-        accept=".json"
-      />
+    <!-- OpenAI 设置区域 -->
+    <div class="settings-card">
+      <h3>OpenAI API</h3>
+      <div class="form-group">
+        <label for="openai-key">API 密钥 (sk-...)</label>
+        <input
+          id="openai-key"
+          type="password"
+          v-model="settings.openai.apiKey"
+          placeholder="请输入你的 OpenAI API Key"
+        />
+      </div>
+      <div class="button-group">
+        <button @click="testConnection('openai')" :disabled="testing.openai">
+          {{ testing.openai ? "测试中..." : "测试连接" }}
+        </button>
+        <!-- 连接成功后显示图标 -->
+        <span v-if="settings.openai.connected" class="success-icon">✅</span>
+      </div>
+
+      <!-- 连接成功后显示模型选择 -->
+      <div v-if="settings.openai.connected" class="form-group">
+        <label for="openai-model">选择模型</label>
+        <select
+          id="openai-model"
+          v-model="settings.activeModel"
+          @change="updateActiveModel('openai', $event)"
+        >
+          <option
+            v-for="model in settings.openai.models"
+            :key="model.id || model"
+            :value="{ provider: 'openai', modelName: model.id || model }"
+          >
+            {{ model.id || model }}
+          </option>
+        </select>
+      </div>
     </div>
 
-    <el-collapse v-model="activePanels">
-      <el-collapse-item title="1. API & 模型设置" name="1">
-        <ApiSettings
-          v-model:apiUrl="store.apiConfig.url"
-          v-model:apiKey="store.apiConfig.key"
-          v-model:selectedModel="store.apiConfig.model"
+    <!-- Gemini 设置区域 -->
+    <div class="settings-card">
+      <h3>Google Gemini API</h3>
+      <div class="form-group">
+        <label for="gemini-key">API 密钥</label>
+        <input
+          id="gemini-key"
+          type="password"
+          v-model="settings.gemini.apiKey"
+          placeholder="请输入你的 Gemini API Key"
         />
-      </el-collapse-item>
-      <el-collapse-item title="2. 智能体设置" name="2">
-        <AgentCreator
-          :initial-agent="store.agent"
-          @update-agent="handleUpdateAgent"
-        />
-      </el-collapse-item>
-    </el-collapse>
+      </div>
+      <div class="button-group">
+        <button @click="testConnection('gemini')" :disabled="testing.gemini">
+          {{ testing.gemini ? "测试中..." : "测试连接" }}
+        </button>
+        <span v-if="settings.gemini.connected" class="success-icon">✅</span>
+      </div>
+
+      <div v-if="settings.gemini.connected" class="form-group">
+        <label for="gemini-model">选择模型</label>
+        <select
+          id="gemini-model"
+          v-model="settings.activeModel"
+          @change="updateActiveModel('gemini', $event)"
+        >
+          <option
+            v-for="model in settings.gemini.models"
+            :key="model.name"
+            :value="{ provider: 'gemini', modelName: model.name.split('/')[1] }"
+          >
+            {{ model.name.split("/")[1] }}
+          </option>
+        </select>
+      </div>
+    </div>
+
+    <p class="info">所有设置将自动保存在您的浏览器中。</p>
   </div>
 </template>
 
 <script setup>
 import { ref } from "vue";
-import { ElMessage } from "element-plus";
-import ApiSettings from "../components/ApiSettings.vue";
-import AgentCreator from "../components/AgentCreator.vue";
-import { store } from "../store"; // 导入我们的全局状态
+import { useSettingsStore } from "@/stores/settingsStore";
+import api from "@/api";
 
-const activePanels = ref(["1", "2"]);
-const fileInput = ref(null); // 创建一个 ref 来引用隐藏的 input 元素
+const settings = useSettingsStore();
 
-const handleUpdateAgent = (updatedAgent) => {
-  store.agent = updatedAgent;
-  localStorage.setItem("agent", JSON.stringify(updatedAgent));
-};
+const testing = ref({
+  openai: false,
+  gemini: false,
+});
 
-// --- 新增：导出逻辑 ---
-const handleExport = () => {
-  // 1. 准备要保存的数据
-  const settingsToSave = {
-    apiConfig: store.apiConfig,
-    agent: store.agent,
-  };
+const testConnection = async (provider) => {
+  testing.value[provider] = true;
+  settings[provider].connected = false; // 重置连接状态
 
-  // 2. 将数据对象转换为格式化的 JSON 字符串
-  const dataStr = JSON.stringify(settingsToSave, null, 2); // null, 2 用于美化输出
-
-  // 3. 创建一个 Blob 对象，它代表了我们的文件内容
-  const blob = new Blob([dataStr], { type: "application/json" });
-
-  // 4. 创建一个临时的 URL 指向这个 Blob 对象
-  const url = URL.createObjectURL(blob);
-
-  // 5. 创建一个隐藏的 <a> 标签来触发下载
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "ai-chat-settings.json"; // 设置默认下载的文件名
-  document.body.appendChild(link);
-  link.click(); // 模拟点击链接
-
-  // 6. 清理：移除 <a> 标签并释放 URL 对象
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-
-  ElMessage.success("配置已开始下载！");
-};
-
-// --- 新增：导入逻辑 ---
-const triggerFileInput = () => {
-  // 模拟点击隐藏的文件输入框
-  fileInput.value.click();
-};
-
-const handleImport = (event) => {
-  const file = event.target.files[0];
-  if (!file) {
-    return; // 用户取消了选择
-  }
-
-  // 使用 FileReader API 来读取文件内容
-  const reader = new FileReader();
-
-  reader.onload = (e) => {
-    try {
-      const content = e.target.result;
-      const importedSettings = JSON.parse(content);
-
-      // 简单的验证，确保文件包含我们需要的数据
-      if (importedSettings.apiConfig && importedSettings.agent) {
-        // **非常重要的一步**：将导入的数据更新到应用中
-
-        // 1. 更新全局 store
-        store.apiConfig = importedSettings.apiConfig;
-        store.agent = importedSettings.agent;
-
-        // 2. 同时也要更新 localStorage，以便刷新后保留
-        localStorage.setItem("api_url", store.apiConfig.url);
-        localStorage.setItem("api_key", store.apiConfig.key);
-        localStorage.setItem("selected_model", store.apiConfig.model);
-        localStorage.setItem("agent", JSON.stringify(store.agent));
-
-        ElMessage.success("配置已成功导入并应用！");
-      } else {
-        ElMessage.error("导入失败：文件格式不正确。");
-      }
-    } catch (error) {
-      console.error("导入文件时出错:", error);
-      ElMessage.error("导入失败：文件不是有效的 JSON 格式。");
+  try {
+    let response;
+    if (provider === "openai") {
+      response = await api.openai.fetchOpenAIModels(settings.openai.apiKey);
+      // 过滤出 gpt 模型并保存
+      settings.openai.models = response.data
+        .filter((m) => m.id.includes("gpt"))
+        .sort((a, b) => b.id.localeCompare(a.id));
+    } else if (provider === "gemini") {
+      response = await api.gemini.fetchGeminiModels(settings.gemini.apiKey);
+      // 过滤出包含 generateContent 的模型
+      settings.gemini.models = response.models.filter((m) =>
+        m.supportedGenerationMethods.includes("generateContent")
+      );
     }
-  };
+    settings[provider].connected = true;
+    alert(`${provider.toUpperCase()} 连接成功!`);
+  } catch (error) {
+    alert(`连接失败: ${error.message}`);
+    console.error(error);
+  } finally {
+    testing.value[provider] = false;
+  }
+};
 
-  reader.onerror = () => {
-    ElMessage.error("读取文件时发生错误。");
-  };
-
-  // 以文本形式读取文件
-  reader.readAsText(file);
-
-  // 清空 input 的值，这样下次选择同一个文件时也能触发 change 事件
-  event.target.value = "";
+// 这个函数是必要的，因为 v-model 在 select 和 option value 是对象时工作方式有点特殊
+const updateActiveModel = (provider, event) => {
+  // event.target.value 在这种情况下是字符串 "[object Object]"
+  // 我们需要从 DOM 元素上找到选中的 option，并从中解析出我们的对象
+  const selectedOption = event.target.options[event.target.selectedIndex];
+  if (selectedOption?._value) {
+    settings.activeModel = selectedOption._value;
+  }
 };
 </script>
 
 <style scoped>
-.settings-view {
-  padding: 20px;
+.settings-page {
+  padding: 2rem;
   max-width: 800px;
   margin: 0 auto;
 }
-/* 新增样式 */
-.file-operations {
-  margin-bottom: 20px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #dcdfe6;
+.settings-card {
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+.form-group {
+  margin-bottom: 1rem;
+}
+label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: bold;
+}
+input,
+select {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.button-group {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+button {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  background-color: #4caf50;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+button:disabled {
+  background-color: #cccccc;
+}
+.success-icon {
+  font-size: 1.5rem;
+}
+.info {
+  text-align: center;
+  color: #888;
 }
 </style>

@@ -1,33 +1,23 @@
 import { createRouter, createWebHistory } from "vue-router";
 import ChatView from "../views/ChatView.vue";
+// 1. 导入新的 SettingsView 组件
 import SettingsView from "../views/SettingsView.vue";
 
-// 1. 定义路由
-// 每个路由都需要映射到一个组件。
-const routes = [
-  {
-    path: "/",
-    // 重定向到聊天页面，作为默认页
-    redirect: "/chat",
-  },
-  {
-    path: "/chat",
-    name: "Chat",
-    component: ChatView,
-  },
-  {
-    path: "/settings",
-    name: "Settings",
-    component: SettingsView,
-  },
-];
-
-// 2. 创建路由实例
 const router = createRouter({
-  // 使用 HTML5 History 模式，URL 中不会有 #
-  history: createWebHistory(),
-  routes, // `routes: routes` 的缩写
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    {
+      path: "/",
+      name: "chat",
+      component: ChatView,
+    },
+    // 2. 为设置页面添加新的路由规则
+    {
+      path: "/settings",
+      name: "settings",
+      component: SettingsView,
+    },
+  ],
 });
 
-// 3. 导出路由实例，以便在 main.js 中使用
 export default router;

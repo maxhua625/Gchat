@@ -1,15 +1,17 @@
 import { createApp } from "vue";
-import App from "./App.vue";
-import ElementPlus from "element-plus";
-import "element-plus/dist/index.css";
+import { createPinia } from "pinia"; // 导入 createPinia
+import piniaPluginPersistedstate from "pinia-plugin-persistedstate"; // 导入持久化插件
 
-// 1. 导入我们创建的路由实例
+import App from "./App.vue";
 import router from "./router";
+import "./assets/main.css";
 
 const app = createApp(App);
 
-// 2. 告诉 Vue 应用使用路由
+const pinia = createPinia(); // 创建 Pinia 实例
+pinia.use(piniaPluginPersistedstate); // 使用持久化插件
+
+app.use(pinia); // 将 Pinia 实例应用到 app
 app.use(router);
 
-app.use(ElementPlus);
 app.mount("#app");
