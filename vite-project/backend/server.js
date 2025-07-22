@@ -5,75 +5,99 @@ import cors from "cors";
 const app = express();
 const PORT = 3000;
 
-// API 提供商的根地址“地图”
-const PROVIDER_BASE_URLS = {
-  openai: "https://api.openai.com",
-  gemini: "https://generativelanguage.googleapis.com",
-};
-
 app.use(cors());
 app.use(express.json());
 
-app.post("/api/forward", async (req, res) => {
-  // 我们使用一个更清晰的端点名
-  // 从前端接收更简单的指令
-  const { provider, endpoint, method, apiKey, data } = req.body;
-
-  if (!provider || !PROVIDER_BASE_URLS[provider]) {
-    return res
-      .status(400)
-      .json({ error: "A valid provider (openai/gemini) is required" });
+// 统一的错误处理器
+const handleApiError = (res, error, provider) => {
+  console.error(`--- ERROR FROM ${provider.toUpperCase()} GATEWAY ---`);
+  if (error.response) {
+    console.error("Status:", error.response.status);
+    console.error("Data:", error.response.data);
+    res.status(error.response.status).json(error.response.data);
+  } else {
+    console.error("Error:", error.message);
+    res.status(500).json({
+      error: `An internal error occurred in the ${provider} gateway.`,
+    });
   }
-  if (!endpoint) {
-    return res.status(400).json({ error: "Target endpoint is required" });
-  }
+};
 
-  // 后端在这里构建最终的、绝对正确的 URL
-  const baseURL = PROVIDER_BASE_URLS[provider];
-  const finalURL = baseURL + endpoint;
-
-  const requestMethod = method?.toUpperCase() || "GET";
-  console.log(`Forwarding request to: ${requestMethod} ${finalURL}`);
-
+// --- OpenAI 路由 (保持不变) ---
+const OPENAI_BASE_URL = "https://api.openai.com";
+app.post("/api/openai/:endpoint(*)", async (req, res) => {
+  const { endpoint } = req.params;
+  const { apiKey, data, method = "post" } = req.body;
+  if (!apiKey) return res.status(401).json({ error: "API key is required." });
   try {
-    const headers = {};
-    // 根据提供商设置不同的认证头
-    if (provider === "openai") {
-      headers["Authorization"] = `Bearer ${apiKey}`;
-    }
-    headers["Content-Type"] = "application/json";
-
-    const axiosConfig = {
-      url: finalURL,
-      method: requestMethod,
-      headers: headers,
-    };
-
-    if (requestMethod !== "GET" && data) {
-      axiosConfig.data = data;
-    }
-
-    const response = await axios(axiosConfig);
-    res.status(response.status).json(response.data);
+    const response = await axios({
+      url: `${OPENAI_BASE_URL}/${endpoint}`,
+      method: method,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      data: data,
+    });
+    res.json(response.data);
   } catch (error) {
-    console.error("--- FORWARDING ERROR ---");
-    console.error("Request to:", finalURL);
-    if (error.response) {
-      console.error("Status:", error.response.status);
-      console.error("Data:", error.response.data);
-    } else {
-      console.error("Error:", error.message);
-    }
-    console.error("--- END FORWARDING ERROR ---");
+    handleApiError(res, error, "openai");
+  }
+});
 
-    const status = error.response?.status || 500;
-    const errorData = error.response?.data || {
-      error: "An error occurred in the forwarding server.",
-    };
-    res.status(status).json(errorData);
+// --- Gemini 路由 (保持不变) ---
+const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
+app.post("/api/gemini/get-models", async (req, res) => {
+  const { apiKey } = req.body;
+  if (!apiKey) return res.status(401).json({ error: "API key is required." });
+  try {
+    const url = `${GEMINI_BASE_URL}/v1beta/models?key=${apiKey}`;
+    const response = await axios.get(url);
+    res.json(response.data);
+  } catch (error) {
+    handleApiError(res, error, "gemini-models");
+  }
+});
+app.post("/api/gemini/:endpoint(*)", async (req, res) => {
+  const { endpoint } = req.params;
+  const { apiKey, data, method = "post" } = req.body;
+  if (!apiKey) return res.status(401).json({ error: "API key is required." });
+  try {
+    const response = await axios({
+      url: `${GEMINI_BASE_URL}/${endpoint}?key=${apiKey}`,
+      method: method,
+      headers: { "Content-Type": "application/json" },
+      data: data,
+    });
+    res.json(response.data);
+  } catch (error) {
+    handleApiError(res, error, "gemini-chat");
+  }
+});
+
+// --- (关键新增) DeepSeek 专属路由 ---
+const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
+app.post("/api/deepseek/:endpoint(*)", async (req, res) => {
+  const { endpoint } = req.params;
+  const { apiKey, data, method = "post" } = req.body;
+  if (!apiKey) return res.status(401).json({ error: "API key is required." });
+  try {
+    // DeepSeek 的认证方式和 OpenAI 完全相同
+    const response = await axios({
+      url: `${DEEPSEEK_BASE_URL}/${endpoint}`,
+      method: method,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      data: data,
+    });
+    res.json(response.data);
+  } catch (error) {
+    handleApiError(res, error, "deepseek");
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Backend forwarding server listening on port ${PORT}`);
+  console.log(`Backend API Gateway listening on port ${PORT}`);
 });

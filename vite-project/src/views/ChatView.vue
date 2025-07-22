@@ -3,10 +3,11 @@
     <div class="chat-info-header">
       当前模型:
       <strong
-        >{{ settings.activeModel.provider.toUpperCase() }} /
+        >{{ settings.activeModel.provider }} /
         {{ settings.activeModel.modelName }}</strong
       >
     </div>
+
     <div class="message-list" ref="messageListRef">
       <Message
         v-for="(item, index) in chat.history"
@@ -17,6 +18,7 @@
         <Message :item="{ role: 'assistant', content: '...' }" />
       </div>
     </div>
+
     <div class="chat-input-area">
       <form @submit.prevent="sendMessage" class="input-form">
         <input
@@ -35,7 +37,7 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onMounted } from "vue";
+import { ref, onMounted, nextTick, watch } from "vue";
 import Message from "@/components/Message.vue";
 import api from "@/api";
 import { useChatStore } from "@/stores/chatStore";
@@ -43,7 +45,6 @@ import { useSettingsStore } from "@/stores/settingsStore";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
-
 const userInput = ref("");
 const isLoading = ref(false);
 const messageListRef = ref(null);
@@ -52,12 +53,10 @@ const sendMessage = async () => {
   if (!userInput.value || isLoading.value) return;
 
   const provider = settings.activeModel.provider;
-  const config = settings[provider];
+  const apiKey = settings[provider]?.apiKey;
 
-  if (!config.apiKey || !config.baseURL) {
-    alert(
-      `请先在“设置”页面正确配置 ${provider.toUpperCase()} 的 API 地址和密钥!`
-    );
+  if (!apiKey) {
+    alert(`请先在设置页面配置 ${provider.toUpperCase()} 的 API Key!`);
     return;
   }
 
@@ -70,8 +69,6 @@ const sendMessage = async () => {
   try {
     let response;
     const currentHistory = JSON.parse(JSON.stringify(chat.history));
-    // **直接使用干净的 baseURL**
-    const baseURL = config.baseURL;
 
     if (provider === "openai") {
       const messagesForAPI = currentHistory.map((msg) => ({
@@ -79,9 +76,21 @@ const sendMessage = async () => {
         content: msg.content,
       }));
       response = await api.openai.fetchOpenAIChatCompletion(
-        { messages: messagesForAPI, model: settings.activeModel.modelName },
-        config.apiKey,
-        baseURL
+        { model: settings.activeModel.modelName, messages: messagesForAPI },
+        apiKey
+      );
+      chat.addMessage(response.choices[0].message);
+    }
+    // (关键新增) 添加对 deepseek 的处理
+    else if (provider === "deepseek") {
+      const messagesForAPI = currentHistory.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+      // DeepSeek 的调用方式和 OpenAI 完全相同
+      response = await api.deepseek.fetchDeepseekChatCompletion(
+        { model: settings.activeModel.modelName, messages: messagesForAPI },
+        apiKey
       );
       chat.addMessage(response.choices[0].message);
     } else if (provider === "gemini") {
@@ -91,11 +100,7 @@ const sendMessage = async () => {
           parts: [{ text: msg.content }],
         })),
       };
-      response = await api.gemini.fetchGeminiCompletion(
-        { model: settings.activeModel.modelName, data: contentsForAPI },
-        config.apiKey,
-        baseURL
-      );
+      response = await api.gemini.fetchGeminiCompletion(contentsForAPI, apiKey);
       const assistantMessageText = response.candidates[0].content.parts[0].text;
       chat.addMessage({
         role: "assistant",
@@ -104,10 +109,10 @@ const sendMessage = async () => {
     }
   } catch (error) {
     const errorMessage = `获取回复失败: ${
-      error.response?.data?.error?.message || error.message || "未知错误"
+      error.response?.data?.error?.message || error.message
     }`;
     chat.addMessage({ role: "assistant", content: errorMessage });
-    console.error("Full error object:", error);
+    console.error(errorMessage);
   } finally {
     isLoading.value = false;
   }
@@ -123,13 +128,18 @@ const scrollToBottom = async () => {
 
 watch(
   () => chat.history.length,
-  () => scrollToBottom()
+  () => {
+    scrollToBottom();
+  }
 );
-onMounted(() => scrollToBottom());
+
+onMounted(() => {
+  scrollToBottom();
+});
 </script>
 
 <style scoped>
-/* 样式与之前版本完全相同 */
+/* 样式保持不变 */
 .chat-wrapper {
   display: flex;
   flex-direction: column;
@@ -154,7 +164,7 @@ onMounted(() => scrollToBottom());
 }
 .chat-input-area {
   padding: 1rem;
-  background-color: #ffffff;
+  background-color: #fff;
   border-top: 1px solid #d9d9d9;
   flex-shrink: 0;
 }
@@ -171,16 +181,21 @@ onMounted(() => scrollToBottom());
   border-radius: 8px;
   font-size: 1rem;
 }
+.input-form input:focus {
+  outline: 0;
+  border-color: #4caf50;
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
 .input-form button {
   padding: 0.75rem 1.5rem;
   border: none;
   background-color: #4caf50;
-  color: white;
+  color: #fff;
   border-radius: 8px;
   cursor: pointer;
   font-size: 1rem;
 }
 .input-form button:disabled {
-  background-color: #cccccc;
+  background-color: #ccc;
 }
 </style>

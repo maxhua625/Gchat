@@ -1,23 +1,23 @@
 import request from "../request.js";
 
-function forwardRequest(endpoint, method, apiKey, data) {
+// 调用后端的 /api/openai/... 路由
+function callOpenaiGateway(endpoint, method, apiKey, data) {
   return request({
-    url: "/api/forward",
-    method: "post",
+    url: `/api/openai/${endpoint}`,
+    method: "post", // 所有对后端的请求都是 POST
     data: {
-      provider: "openai",
-      endpoint,
-      method,
+      // 将 apiKey 和 data 包在请求体里
       apiKey,
       data,
+      method,
     },
   });
 }
 
 export const fetchOpenAIChatCompletion = (params, apiKey) => {
-  return forwardRequest("/v1/chat/completions", "post", apiKey, params);
+  return callOpenaiGateway("v1/chat/completions", "post", apiKey, params);
 };
 
 export const fetchOpenAIModels = (apiKey) => {
-  return forwardRequest("/v1/models", "get", apiKey, null);
+  return callOpenaiGateway("v1/models", "get", apiKey, null);
 };

@@ -1,10 +1,11 @@
-// 导入所有 service 文件中的 API
 import * as openai from "./services/openai.js";
-// 新增：导入 gemini 服务
 import * as gemini from "./services/gemini.js";
+// 1. 导入新的 deepseek 服务
+import * as deepseek from "./services/deepseek.js";
 
-// 统一导出
 export default {
   openai,
-  gemini, // 新增：导出 gemini
+  gemini,
+  // 2. 导出 deepseek 服务
+  deepseek,
 };

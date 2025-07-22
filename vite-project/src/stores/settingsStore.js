@@ -6,18 +6,24 @@ export const useSettingsStore = defineStore(
   () => {
     const openai = ref({
       apiKey: "",
-      // baseURL 已被移除
       connected: false,
       models: [],
     });
 
     const gemini = ref({
       apiKey: "",
-      // baseURL 已被移除
       connected: false,
       models: [],
     });
 
+    // 1. (关键新增) 为 DeepSeek 添加状态对象
+    const deepseek = ref({
+      apiKey: "",
+      connected: false,
+      models: [],
+    });
+
+    // 默认激活模型可以保持不变
     const activeModel = ref({
       provider: "openai",
       modelName: "gpt-3.5-turbo",
@@ -26,6 +32,8 @@ export const useSettingsStore = defineStore(
     return {
       openai,
       gemini,
+      // 2. 导出 deepseek 状态
+      deepseek,
       activeModel,
     };
   },

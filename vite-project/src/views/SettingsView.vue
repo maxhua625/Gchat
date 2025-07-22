@@ -2,9 +2,9 @@
   <div class="settings-page">
     <h2>应用设置</h2>
 
+    <!-- OpenAI 设置卡片 (保持不变) -->
     <div class="settings-card">
       <h3>OpenAI API</h3>
-      <!-- URL 输入框已被移除，因为后端会处理 -->
       <div class="form-group">
         <label for="openai-key">API 密钥 (sk-...)</label>
         <input
@@ -25,7 +25,6 @@
           >✅</span
         >
       </div>
-
       <div v-if="settings.openai.connected" class="form-group model-selector">
         <label for="openai-model">选择默认模型</label>
         <select
@@ -44,9 +43,9 @@
       </div>
     </div>
 
+    <!-- Gemini 设置卡片 (保持不变) -->
     <div class="settings-card">
       <h3>Google Gemini API</h3>
-      <!-- URL 输入框已被移除 -->
       <div class="form-group">
         <label for="gemini-key">API 密钥</label>
         <input
@@ -67,7 +66,6 @@
           >✅</span
         >
       </div>
-
       <div v-if="settings.gemini.connected" class="form-group model-selector">
         <label for="gemini-model">选择默认模型</label>
         <select
@@ -88,6 +86,50 @@
       </div>
     </div>
 
+    <!-- (关键新增) DeepSeek 设置卡片 -->
+    <div class="settings-card">
+      <h3>DeepSeek API</h3>
+      <div class="form-group">
+        <label for="deepseek-key">API 密钥 (sk-...)</label>
+        <input
+          id="deepseek-key"
+          type="password"
+          v-model="settings.deepseek.apiKey"
+          placeholder="请输入你的 DeepSeek API Key"
+        />
+      </div>
+      <div class="button-group">
+        <button
+          @click="testConnection('deepseek')"
+          :disabled="testing.deepseek"
+        >
+          {{ testing.deepseek ? "测试中..." : "测试连接" }}
+        </button>
+        <span
+          v-if="settings.deepseek.connected"
+          class="success-icon"
+          title="连接成功"
+          >✅</span
+        >
+      </div>
+      <div v-if="settings.deepseek.connected" class="form-group model-selector">
+        <label for="deepseek-model">选择默认模型</label>
+        <select
+          id="deepseek-model"
+          @change="updateActiveModel('deepseek', $event.target.value)"
+        >
+          <option
+            v-for="model in settings.deepseek.models"
+            :key="model.id"
+            :value="model.id"
+            :selected="model.id === settings.activeModel.modelName"
+          >
+            {{ model.id }}
+          </option>
+        </select>
+      </div>
+    </div>
+
     <p class="info">所有设置将自动保存在您的浏览器中。</p>
   </div>
 </template>
@@ -102,6 +144,7 @@ const settings = useSettingsStore();
 const testing = ref({
   openai: false,
   gemini: false,
+  deepseek: false, // 新增
 });
 
 const testConnection = async (provider) => {
@@ -112,7 +155,6 @@ const testConnection = async (provider) => {
 
   try {
     let response;
-    // 调用更新后的、更简单的 API 函数
     if (provider === "openai") {
       response = await api.openai.fetchOpenAIModels(apiKey);
       settings.openai.models = response.data
@@ -123,6 +165,12 @@ const testConnection = async (provider) => {
       settings.gemini.models = response.models.filter((m) =>
         m.supportedGenerationMethods.includes("generateContent")
       );
+    } else if (provider === "deepseek") {
+      // (关键新增)
+      response = await api.deepseek.fetchDeepseekModels(apiKey);
+      settings.deepseek.models = response.data
+        .filter((m) => m.id.includes("deepseek"))
+        .sort((a, b) => b.id.localeCompare(a.id));
     }
     settings[provider].connected = true;
     alert(`${provider.toUpperCase()} 连接成功!`);
@@ -141,7 +189,7 @@ const updateActiveModel = (provider, modelName) => {
 </script>
 
 <style scoped>
-/* 样式保持不变，这里省略以保持简洁 */
+/* 样式保持不变 */
 .settings-page {
   padding: 2rem;
   max-width: 800px;

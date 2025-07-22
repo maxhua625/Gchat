@@ -1,32 +1,37 @@
 import request from "../request.js";
 
-function forwardRequest(endpoint, method, apiKey, data) {
-  // Gemini 的 key 作为 URL 参数，所以 endpoint 需要拼接
-  const finalEndpoint = `${endpoint}?key=${apiKey}`;
+// 这个函数保持不变，用于发送聊天
+function callGeminiGateway(endpoint, method, apiKey, data) {
   return request({
-    url: "/api/forward",
+    url: `/api/gemini/${endpoint}`,
     method: "post",
     data: {
-      provider: "gemini",
-      endpoint: finalEndpoint, // 发送拼接好的 endpoint
-      method,
-      // apiKey 在这里仅用于拼接，不需要再传给后端 header
-      apiKey: null,
+      apiKey,
       data,
+      method,
     },
   });
 }
 
+// 这个函数保持不变
 export const fetchGeminiCompletion = (params, apiKey) => {
   const model = "gemini-pro";
-  return forwardRequest(
-    `/v1beta/models/${model}:generateContent`,
+  return callGeminiGateway(
+    `v1beta/models/${model}:generateContent`,
     "post",
     apiKey,
     params
   );
 };
 
+// (关键修改) 这个函数现在调用专属的后端路由
 export const fetchGeminiModels = (apiKey) => {
-  return forwardRequest("/v1beta/models", "get", apiKey, null);
+  return request({
+    // 直接调用新的、硬编码的后端路由，不再传递 endpoint
+    url: "/api/gemini/get-models",
+    method: "post",
+    data: {
+      apiKey, // 我们只需要把 apiKey 发给后端即可
+    },
+  });
 };
