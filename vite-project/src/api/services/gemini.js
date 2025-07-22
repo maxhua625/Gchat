@@ -1,39 +1,27 @@
 import request from "../request.js";
 
-/**
- * 获取 Google Gemini Pro 的聊天回复
- * @param {object} params - 包含 contents 数组的请求参数
- * @param {string} apiKey - API Key
- * @param {string} baseURL - API 的基础地址
- * @returns Promise
- */
+const backendProxyUrl = "http://localhost:3000/api/proxy";
+
 export const fetchGeminiCompletion = (params, apiKey, baseURL) => {
-  if (!apiKey || !baseURL) {
-    return Promise.reject(new Error("API key or baseURL is not provided."));
-  }
-  const model = "gemini-pro";
-  return request({
-    baseURL: baseURL, // 动态设置 baseURL
-    url: `/v1beta/models/${model}:generateContent?key=${apiKey}`,
+  // Gemini 的 key 在 path 中，所以 apiKey 传空字符串，避免在 header 中重复
+  const path = `/v1beta/models/${params.model}:generateContent?key=${apiKey}`;
+
+  return request.post(backendProxyUrl, {
+    baseURL: baseURL,
+    path: path,
     method: "post",
-    headers: { "Content-Type": "application/json" },
-    data: params,
+    apiKey: "", // 传空，因为 key 已经在 path 里
+    data: params.data,
   });
 };
 
-/**
- * 测试连接并获取 Gemini 的模型列表
- * @param {string} apiKey - API Key
- * @param {string} baseURL - API 的基础地址
- * @returns Promise
- */
 export const fetchGeminiModels = (apiKey, baseURL) => {
-  if (!apiKey || !baseURL) {
-    return Promise.reject(new Error("API key or baseURL is not provided."));
-  }
-  return request({
-    baseURL: baseURL, // 动态设置 baseURL
-    url: `/v1beta/models?key=${apiKey}`,
+  const path = `/v1beta/models?key=${apiKey}`;
+
+  return request.post(backendProxyUrl, {
+    baseURL: baseURL,
+    path: path,
     method: "get",
+    apiKey: "",
   });
 };

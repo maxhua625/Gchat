@@ -1,3 +1,4 @@
+vue
 <template>
   <div class="chat-wrapper">
     <div class="chat-info-header">
@@ -7,7 +8,6 @@
         {{ settings.activeModel.modelName }}</strong
       >
     </div>
-
     <div class="message-list" ref="messageListRef">
       <Message
         v-for="(item, index) in chat.history"
@@ -18,7 +18,6 @@
         <Message :item="{ role: 'assistant', content: '...' }" />
       </div>
     </div>
-
     <div class="chat-input-area">
       <form @submit.prevent="sendMessage" class="input-form">
         <input
@@ -50,9 +49,6 @@ const userInput = ref("");
 const isLoading = ref(false);
 const messageListRef = ref(null);
 
-// **同样需要 CORS 代理**
-const corsProxy = "https://cors-anywhere.herokuapp.com/";
-
 const sendMessage = async () => {
   if (!userInput.value || isLoading.value) return;
 
@@ -75,8 +71,6 @@ const sendMessage = async () => {
   try {
     let response;
     const currentHistory = JSON.parse(JSON.stringify(chat.history));
-    // **使用带代理的 URL**
-    const proxiedBaseURL = corsProxy + config.baseURL;
 
     if (provider === "openai") {
       const messagesForAPI = currentHistory.map((msg) => ({
@@ -86,7 +80,7 @@ const sendMessage = async () => {
       response = await api.openai.fetchOpenAIChatCompletion(
         { messages: messagesForAPI, model: settings.activeModel.modelName },
         config.apiKey,
-        proxiedBaseURL // 传递带代理的 URL
+        config.baseURL
       );
       chat.addMessage(response.choices[0].message);
     } else if (provider === "gemini") {
@@ -97,9 +91,9 @@ const sendMessage = async () => {
         })),
       };
       response = await api.gemini.fetchGeminiCompletion(
-        contentsForAPI,
+        { model: settings.activeModel.modelName, data: contentsForAPI },
         config.apiKey,
-        proxiedBaseURL // 传递带代理的 URL
+        config.baseURL
       );
       const assistantMessageText = response.candidates[0].content.parts[0].text;
       chat.addMessage({
@@ -108,11 +102,9 @@ const sendMessage = async () => {
       });
     }
   } catch (error) {
-    const errorMessage = `获取回复失败: ${
-      error.response?.data?.error?.message || error.message
-    }`;
+    const errorMessage = `获取回复失败: ${error.message || "未知错误"}`;
     chat.addMessage({ role: "assistant", content: errorMessage });
-    console.error(error);
+    console.error("Full error object:", error);
   } finally {
     isLoading.value = false;
   }
@@ -175,11 +167,6 @@ onMounted(() => scrollToBottom());
   border: 1px solid #ccc;
   border-radius: 8px;
   font-size: 1rem;
-}
-.input-form input:focus {
-  outline: none;
-  border-color: #4caf50;
-  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
 }
 .input-form button {
   padding: 0.75rem 1.5rem;
