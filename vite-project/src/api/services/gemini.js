@@ -3,43 +3,36 @@ import request from "../request.js";
 /**
  * 获取 Google Gemini Pro 的聊天回复
  * @param {object} params - 包含 contents 数组的请求参数
- * @param {string} apiKey - 从设置中传入的 API Key
+ * @param {string} apiKey - API Key
+ * @param {string} baseURL - API 的基础地址
  * @returns Promise
  */
-export const fetchGeminiCompletion = (params, apiKey) => {
-  // 检查 apiKey 是否被传入
-  if (!apiKey) {
-    return Promise.reject(new Error("Gemini API key is not provided."));
+export const fetchGeminiCompletion = (params, apiKey, baseURL) => {
+  if (!apiKey || !baseURL) {
+    return Promise.reject(new Error("API key or baseURL is not provided."));
   }
-
-  // Gemini API 的地址和模型，将 apiKey 作为 URL 参数
-  const model = "gemini-pro"; // 对于聊天，通常使用 gemini-pro
-  const url = `/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
+  const model = "gemini-pro";
   return request({
-    url: url,
+    baseURL: baseURL, // 动态设置 baseURL
+    url: `/v1beta/models/${model}:generateContent?key=${apiKey}`,
     method: "post",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    // Gemini 的请求体直接就是要发送的数据
+    headers: { "Content-Type": "application/json" },
     data: params,
   });
 };
 
 /**
- * (新增) 测试连接并获取 Gemini 的模型列表
- * @param {string} apiKey - 从设置页面输入的 API Key
+ * 测试连接并获取 Gemini 的模型列表
+ * @param {string} apiKey - API Key
+ * @param {string} baseURL - API 的基础地址
  * @returns Promise
  */
-export const fetchGeminiModels = (apiKey) => {
-  // 检查 apiKey 是否被传入
-  if (!apiKey) {
-    return Promise.reject(new Error("Gemini API key is not provided."));
+export const fetchGeminiModels = (apiKey, baseURL) => {
+  if (!apiKey || !baseURL) {
+    return Promise.reject(new Error("API key or baseURL is not provided."));
   }
-
   return request({
-    // 将 apiKey 作为 URL 参数
+    baseURL: baseURL, // 动态设置 baseURL
     url: `/v1beta/models?key=${apiKey}`,
     method: "get",
   });

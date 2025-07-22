@@ -5,6 +5,16 @@
     <!-- OpenAI 设置区域 -->
     <div class="settings-card">
       <h3>OpenAI API</h3>
+      <!-- 新增：URL 输入框 -->
+      <div class="form-group">
+        <label for="openai-url">API 地址</label>
+        <input
+          id="openai-url"
+          type="text"
+          v-model="settings.openai.baseURL"
+          placeholder="例如：https://api.openai.com"
+        />
+      </div>
       <div class="form-group">
         <label for="openai-key">API 密钥 (sk-...)</label>
         <input
@@ -18,24 +28,28 @@
         <button @click="testConnection('openai')" :disabled="testing.openai">
           {{ testing.openai ? "测试中..." : "测试连接" }}
         </button>
-        <!-- 连接成功后显示图标 -->
-        <span v-if="settings.openai.connected" class="success-icon">✅</span>
+        <span
+          v-if="settings.openai.connected"
+          class="success-icon"
+          title="连接成功"
+          >✅</span
+        >
       </div>
 
       <!-- 连接成功后显示模型选择 -->
-      <div v-if="settings.openai.connected" class="form-group">
-        <label for="openai-model">选择模型</label>
+      <div v-if="settings.openai.connected" class="form-group model-selector">
+        <label for="openai-model">选择默认模型</label>
         <select
           id="openai-model"
-          v-model="settings.activeModel"
-          @change="updateActiveModel('openai', $event)"
+          @change="updateActiveModel('openai', $event.target.value)"
         >
           <option
             v-for="model in settings.openai.models"
-            :key="model.id || model"
-            :value="{ provider: 'openai', modelName: model.id || model }"
+            :key="model.id"
+            :value="model.id"
+            :selected="model.id === settings.activeModel.modelName"
           >
-            {{ model.id || model }}
+            {{ model.id }}
           </option>
         </select>
       </div>
@@ -44,6 +58,16 @@
     <!-- Gemini 设置区域 -->
     <div class="settings-card">
       <h3>Google Gemini API</h3>
+      <!-- 新增：URL 输入框 -->
+      <div class="form-group">
+        <label for="gemini-url">API 地址</label>
+        <input
+          id="gemini-url"
+          type="text"
+          v-model="settings.gemini.baseURL"
+          placeholder="例如：https://generativelanguage.googleapis.com"
+        />
+      </div>
       <div class="form-group">
         <label for="gemini-key">API 密钥</label>
         <input
@@ -57,20 +81,28 @@
         <button @click="testConnection('gemini')" :disabled="testing.gemini">
           {{ testing.gemini ? "测试中..." : "测试连接" }}
         </button>
-        <span v-if="settings.gemini.connected" class="success-icon">✅</span>
+        <span
+          v-if="settings.gemini.connected"
+          class="success-icon"
+          title="连接成功"
+          >✅</span
+        >
       </div>
 
-      <div v-if="settings.gemini.connected" class="form-group">
-        <label for="gemini-model">选择模型</label>
+      <!-- 连接成功后显示模型选择 -->
+      <div v-if="settings.gemini.connected" class="form-group model-selector">
+        <label for="gemini-model">选择默认模型</label>
         <select
           id="gemini-model"
-          v-model="settings.activeModel"
-          @change="updateActiveModel('gemini', $event)"
+          @change="updateActiveModel('gemini', $event.target.value)"
         >
           <option
             v-for="model in settings.gemini.models"
             :key="model.name"
-            :value="{ provider: 'gemini', modelName: model.name.split('/')[1] }"
+            :value="model.name.split('/')[1]"
+            :selected="
+              model.name.split('/')[1] === settings.activeModel.modelName
+            "
           >
             {{ model.name.split("/")[1] }}
           </option>
@@ -98,16 +130,19 @@ const testConnection = async (provider) => {
   testing.value[provider] = true;
   settings[provider].connected = false; // 重置连接状态
 
+  const apiKey = settings[provider].apiKey;
+  const baseURL = settings[provider].baseURL;
+
   try {
     let response;
     if (provider === "openai") {
-      response = await api.openai.fetchOpenAIModels(settings.openai.apiKey);
+      response = await api.openai.fetchOpenAIModels(apiKey, baseURL);
       // 过滤出 gpt 模型并保存
       settings.openai.models = response.data
         .filter((m) => m.id.includes("gpt"))
         .sort((a, b) => b.id.localeCompare(a.id));
     } else if (provider === "gemini") {
-      response = await api.gemini.fetchGeminiModels(settings.gemini.apiKey);
+      response = await api.gemini.fetchGeminiModels(apiKey, baseURL);
       // 过滤出包含 generateContent 的模型
       settings.gemini.models = response.models.filter((m) =>
         m.supportedGenerationMethods.includes("generateContent")
@@ -123,14 +158,10 @@ const testConnection = async (provider) => {
   }
 };
 
-// 这个函数是必要的，因为 v-model 在 select 和 option value 是对象时工作方式有点特殊
-const updateActiveModel = (provider, event) => {
-  // event.target.value 在这种情况下是字符串 "[object Object]"
-  // 我们需要从 DOM 元素上找到选中的 option，并从中解析出我们的对象
-  const selectedOption = event.target.options[event.target.selectedIndex];
-  if (selectedOption?._value) {
-    settings.activeModel = selectedOption._value;
-  }
+// 更新当前激活的模型
+const updateActiveModel = (provider, modelName) => {
+  settings.activeModel = { provider, modelName };
+  alert(`默认模型已切换为: ${provider} - ${modelName}`);
 };
 </script>
 
@@ -150,6 +181,11 @@ const updateActiveModel = (provider, event) => {
 .form-group {
   margin-bottom: 1rem;
 }
+.model-selector {
+  margin-top: 1.5rem;
+  border-top: 1px solid #eee;
+  padding-top: 1.5rem;
+}
 label {
   display: block;
   margin-bottom: 0.5rem;
@@ -161,6 +197,7 @@ select {
   padding: 0.75rem;
   border: 1px solid #ccc;
   border-radius: 4px;
+  box-sizing: border-box; /* 确保 padding 不会撑大宽度 */
 }
 .button-group {
   display: flex;
