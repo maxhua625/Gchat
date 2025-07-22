@@ -1,24 +1,10 @@
-import request from "../request.js";
-
-// 这是一个通用的函数，用于将请求打包并发送给我们的后端代理
-function proxyRequest(url, method, headers, data) {
-  return request({
-    url: "/api/proxy", // 所有请求都发往这个固定的后端端点
-    method: "post",
-    data: {
-      // 将目标信息作为请求体发送给后端
-      url,
-      method,
-      headers,
-      data,
-    },
-  });
-}
+import { proxyRequest } from "../apiService.js";
 
 /**
  * 获取 OpenAI 的聊天回复 (通过我们的后端代理)
  */
 export const fetchOpenAIChatCompletion = (params, apiKey, baseURL) => {
+  // 正确的拼接方式：baseURL + 具体的 API 路径
   const targetURL = `${baseURL}/v1/chat/completions`;
   const targetHeaders = {
     Authorization: `Bearer ${apiKey}`,
@@ -35,6 +21,7 @@ export const fetchOpenAIChatCompletion = (params, apiKey, baseURL) => {
  * 测试连接并获取 OpenAI 的模型列表 (通过我们的后端代理)
  */
 export const fetchOpenAIModels = (apiKey, baseURL) => {
+  // 关键修正：确保只拼接一次 API 路径
   const targetURL = `${baseURL}/v1/models`;
   const targetHeaders = {
     Authorization: `Bearer ${apiKey}`,

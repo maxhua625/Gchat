@@ -9,37 +9,51 @@ app.use(cors());
 app.use(express.json());
 
 app.post("/api/proxy", async (req, res) => {
-  // 从请求体中解构出目标 API 的所有信息
   const { url, method, headers, data } = req.body;
 
   if (!url) {
     return res.status(400).json({ error: "Target URL is required" });
   }
 
-  console.log(`Proxying request to: ${method?.toUpperCase() || "GET"} ${url}`);
+  const requestMethod = method?.toUpperCase() || "GET";
+  console.log(`Proxying request to: ${requestMethod} ${url}`);
 
   try {
-    // 优化：清理掉一些不必要的或可能导致冲突的请求头
-    const headersToSend = { ...headers };
-    delete headersToSend["host"];
-    delete headersToSend["origin"];
-    delete headersToSend["referer"];
-    delete headersToSend["connection"];
-    // Axios 会自动处理 Content-Length
-
-    const response = await axios({
+    const axiosConfig = {
       url,
-      method,
-      headers: headersToSend,
-      data,
-    });
+      method: requestMethod,
+      headers: { ...headers },
+    };
+
+    delete axiosConfig.headers["host"];
+    delete axiosConfig.headers["origin"];
+    delete axiosConfig.headers["referer"];
+    delete axiosConfig.headers["connection"];
+
+    if (requestMethod !== "GET" && data) {
+      axiosConfig.data = data;
+    }
+
+    const response = await axios(axiosConfig);
 
     res.status(response.status).json(response.data);
   } catch (error) {
-    console.error(
-      "Proxy error details:",
-      error.response?.data || error.message
-    );
+    // 关键：在后端控制台打印出最详细的错误信息
+    console.error("--- PROXY ERROR ---");
+    console.error("Request to:", url);
+    if (error.response) {
+      // 如果错误来自目标 API 服务器 (例如 OpenAI, Google)
+      console.error("Status:", error.response.status);
+      console.error("Data:", error.response.data);
+    } else if (error.request) {
+      // 如果请求已发出但没有收到响应
+      console.error("No response received:", error.request);
+    } else {
+      // 如果是请求设置阶段的错误
+      console.error("Error setting up request:", error.message);
+    }
+    console.error("--- END PROXY ERROR ---");
+
     const status = error.response?.status || 500;
     const errorData = error.response?.data || {
       error: "An unknown error occurred in the proxy.",
