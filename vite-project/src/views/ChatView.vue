@@ -1,23 +1,24 @@
 <template>
   <div class="chat-container">
-    <!-- 顶部标题栏 -->
     <div class="chat-header">
       <h1>Gchat</h1>
-      <p>Powered by Vite + Vue</p>
+      <!-- 新增：模型选择器 -->
+      <div class="model-selector">
+        <label for="model">当前模型: </label>
+        <select v-model="selectedModel" id="model">
+          <option value="openai">OpenAI (GPT-3.5)</option>
+          <option value="gemini">Google (Gemini Pro)</option>
+        </select>
+      </div>
     </div>
 
-    <!-- 消息展示区域 -->
     <div class="message-list" ref="messageListRef">
-      <div v-for="(item, index) in history" :key="index">
-        <Message :item="item" />
-      </div>
-      <!-- 加载提示 -->
+      <Message v-for="(item, index) in history" :key="index" :item="item" />
       <div v-if="isLoading" class="loading-indicator">
         <Message :item="{ role: 'assistant', content: '...' }" />
       </div>
     </div>
 
-    <!-- 输入区域 -->
     <div class="chat-input-area">
       <form @submit.prevent="sendMessage" class="input-form">
         <input
@@ -38,82 +39,96 @@
 <script setup>
 import { ref, onMounted, nextTick } from "vue";
 import Message from "@/components/Message.vue";
-// 引入我们封装好的统一 API 模块
 import api from "@/api";
 
-// --- 响应式状态定义 ---
+// 新增：用于存储当前选择的模型，默认为 openai
+const selectedModel = ref("openai");
 
-// 聊天记录
 const history = ref([]);
-// 用户输入框的内容
 const userInput = ref("");
-// 是否正在等待 API 响应
 const isLoading = ref(false);
-// 消息列表 DOM 元素的引用
 const messageListRef = ref(null);
 
-// --- 核心方法 ---
-
 /**
- * 发送消息并获取 AI 回复
+ * 核心发送函数，现在支持多模型
  */
 const sendMessage = async () => {
-  // 防止发送空消息或在加载时重复发送
   if (!userInput.value || isLoading.value) return;
 
-  // 1. 更新状态
   isLoading.value = true;
   const userMessageContent = userInput.value;
-  userInput.value = ""; // 清空输入框
+  userInput.value = "";
 
-  // 2. 将用户消息添加到聊天记录
   history.value.push({ role: "user", content: userMessageContent });
   await scrollToBottom();
 
-  // 3. 准备发送到 API 的数据 (通常是包含历史记录的数组)
-  // 注意：某些模型可能对历史记录长度有限制
-  const messagesForAPI = history.value
-    .filter((msg) => ["system", "user", "assistant"].includes(msg.role))
-    .map((msg) => ({ role: msg.role, content: msg.content }));
-
-  // 4. 调用封装好的 API 方法
   try {
-    const response = await api.openai.fetchOpenAIChatCompletion({
-      messages: messagesForAPI,
-      // 如果需要流式输出，可以添加 stream: true
-      // stream: true,
-    });
+    let response;
+    // 根据选择的模型，调用不同的 API
+    if (selectedModel.value === "openai") {
+      // --- OpenAI 的逻辑 ---
+      // 1. 准备 OpenAI 需要的 messages 数组格式
+      const messagesForAPI = history.value.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
 
-    // 5. 处理 API 响应
-    if (response.choices && response.choices.length > 0) {
-      const assistantMessage = response.choices[0].message;
-      history.value.push({
-        role: assistantMessage.role,
-        content: assistantMessage.content.trim(),
+      // 2. 调用 OpenAI 的 API
+      response = await api.openai.fetchOpenAIChatCompletion({
+        messages: messagesForAPI,
       });
-    } else {
-      // 处理 API 返回了数据但格式不正确的情况
-      throw new Error("Invalid response format from API.");
+
+      // 3. 解析 OpenAI 的响应
+      if (response.choices && response.choices.length > 0) {
+        // 直接将返回的 message 对象推入历史记录
+        history.value.push(response.choices[0].message);
+      } else {
+        throw new Error("从 OpenAI API 返回的数据格式无效。");
+      }
+    } else if (selectedModel.value === "gemini") {
+      // --- Gemini 的逻辑 ---
+      // 1. 准备 Gemini 需要的 contents 数组格式
+      const contentsForAPI = {
+        contents: history.value.map((msg) => ({
+          // Gemini 使用 'user' 和 'model' 作为角色
+          role: msg.role === "assistant" ? "model" : "user",
+          parts: [{ text: msg.content }],
+        })),
+      };
+
+      // 2. 调用 Gemini 的 API
+      response = await api.gemini.fetchGeminiCompletion(contentsForAPI);
+
+      // 3. 解析 Gemini 的响应
+      if (
+        response.candidates &&
+        response.candidates.length > 0 &&
+        response.candidates[0].content
+      ) {
+        const assistantMessageText =
+          response.candidates[0].content.parts[0].text;
+        history.value.push({
+          role: "assistant",
+          content: assistantMessageText.trim(),
+        });
+      } else {
+        // 有时即使请求成功，Gemini也可能因为安全设置等原因返回不含内容的candidates
+        throw new Error("从 Gemini API 返回的数据格式无效或内容被屏蔽。");
+      }
     }
   } catch (error) {
-    console.error("Failed to fetch chat completion:", error);
-    // 在界面上向用户显示错误信息
+    console.error(`从 ${selectedModel.value} 获取回复失败:`, error);
     history.value.push({
       role: "assistant",
       content: `抱歉，出错了: ${error.message || "无法连接到服务器。"}`,
     });
   } finally {
-    // 6. 结束加载状态
     isLoading.value = false;
     await scrollToBottom();
   }
 };
 
-/**
- * 将消息列表滚动到底部
- */
 const scrollToBottom = async () => {
-  // nextTick 确保 DOM 已经更新完毕
   await nextTick();
   const messageList = messageListRef.value;
   if (messageList) {
@@ -121,26 +136,11 @@ const scrollToBottom = async () => {
   }
 };
 
-// --- 生命周期钩子 ---
-
 onMounted(() => {
-  // 组件挂载时，可以从 localStorage 加载历史记录（如果需要）
-  const savedHistory = localStorage.getItem("chatHistory");
-  if (savedHistory) {
-    history.value = JSON.parse(savedHistory);
-  } else {
-    // 或者设置一条欢迎语
-    history.value.push({
-      role: "assistant",
-      content: "你好！有什么可以帮助你的吗？",
-    });
-  }
-  scrollToBottom();
-
-  // 监听聊天记录的变化，并保存到 localStorage (可选)
-  // watch(history, (newHistory) => {
-  //   localStorage.setItem('chatHistory', JSON.stringify(newHistory));
-  // }, { deep: true });
+  history.value.push({
+    role: "assistant",
+    content: "你好！请在上方选择一个模型，然后开始对话吧。",
+  });
 });
 </script>
 
@@ -160,6 +160,7 @@ onMounted(() => {
   background-color: #ffffff;
   border-bottom: 1px solid #d9d9d9;
   text-align: center;
+  flex-shrink: 0;
 }
 
 .chat-header h1 {
@@ -167,9 +168,17 @@ onMounted(() => {
   font-size: 1.5rem;
 }
 
-.chat-header p {
-  margin: 0;
-  color: #888;
+/* 模型选择器的新增样式 */
+.model-selector {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: #555;
+}
+.model-selector select {
+  margin-left: 8px;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #ccc;
 }
 
 .message-list {
@@ -189,6 +198,7 @@ onMounted(() => {
   padding: 1rem;
   background-color: #ffffff;
   border-top: 1px solid #d9d9d9;
+  flex-shrink: 0;
 }
 
 .input-form {
