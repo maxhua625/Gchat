@@ -1,17 +1,17 @@
 import { createApp } from "vue";
-import { createPinia } from "pinia"; // 导入 createPinia
-import piniaPluginPersistedstate from "pinia-plugin-persistedstate"; // 导入持久化插件
+import { createPinia } from "pinia";
+import piniaPluginPersistedstate from "pinia-plugin-persistedstate";
 
 import App from "./App.vue";
 import router from "./router";
-import "./assets/main.css";
+//  错误的一行 "import './assets/main.css'" 已被删除，因为该文件在您的项目中不存在。
 
 const app = createApp(App);
 
-const pinia = createPinia(); // 创建 Pinia 实例
-pinia.use(piniaPluginPersistedstate); // 使用持久化插件
+const pinia = createPinia();
+pinia.use(piniaPluginPersistedstate);
 
-app.use(pinia); // 将 Pinia 实例应用到 app
+app.use(pinia);
 app.use(router);
 
 app.mount("#app");

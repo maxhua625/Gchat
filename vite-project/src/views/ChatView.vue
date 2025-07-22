@@ -43,8 +43,8 @@ import Message from "@/components/Message.vue";
 import api from "@/api";
 
 // 1. 导入并使用 stores
-import { useChatStore } from "@/stores/chatStore";
-import { useSettingsStore } from "@/stores/settingsStore";
+import { useChatStore } from "@/store/chatStore";
+import { useSettingsStore } from "@/store/settingsStore";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
