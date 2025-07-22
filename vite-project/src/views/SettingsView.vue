@@ -38,7 +38,6 @@
         >
       </div>
 
-      <!-- **这里是修正后的模型选择框** -->
       <div v-if="settings.openai.connected" class="form-group model-selector">
         <label for="openai-model">选择默认模型</label>
         <select
@@ -96,7 +95,6 @@
         >
       </div>
 
-      <!-- **这里是修正后的模型选择框** -->
       <div v-if="settings.gemini.connected" class="form-group model-selector">
         <label for="gemini-model">选择默认模型</label>
         <select
@@ -119,9 +117,6 @@
     </div>
 
     <p class="info">所有设置将自动保存在您的浏览器中。</p>
-    <p class="info cors-info">
-      注意：为了解决浏览器跨域问题，所有请求将通过一个公共代理服务进行。
-    </p>
   </div>
 </template>
 
@@ -133,16 +128,13 @@ import api from "@/api";
 const settings = useSettingsStore();
 const testing = ref({ openai: false, gemini: false });
 
-// **这是解决 CORS 问题的关键**
-const corsProxy = "https://cors-anywhere.herokuapp.com/";
-
 const testConnection = async (provider) => {
   testing.value[provider] = true;
   settings[provider].connected = false;
 
+  // **直接使用用户输入的干净的 URL，不再添加任何代理前缀**
   const apiKey = settings[provider].apiKey;
-  // **将用户输入的 URL 与 CORS 代理地址拼接**
-  const baseURL = corsProxy + settings[provider].baseURL;
+  const baseURL = settings[provider].baseURL;
 
   try {
     let response;
@@ -160,7 +152,9 @@ const testConnection = async (provider) => {
     settings[provider].connected = true;
     alert(`${provider.toUpperCase()} 连接成功!`);
   } catch (error) {
-    alert(`连接失败: ${error.message}\n请检查 API 地址、密钥以及网络连接。`);
+    // 错误提示现在会更具体
+    const errorMessage = error.response?.data?.error?.message || error.message;
+    alert(`连接失败: ${errorMessage}`);
     console.error(error);
   } finally {
     testing.value[provider] = false;
@@ -174,7 +168,7 @@ const updateActiveModel = (provider, modelName) => {
 </script>
 
 <style scoped>
-/* 样式与之前基本相同，只增加一个 cors-info 的样式 */
+/* 样式与之前版本完全相同 */
 .settings-page {
   padding: 2rem;
   max-width: 800px;
@@ -231,9 +225,5 @@ button:disabled {
 .info {
   text-align: center;
   color: #888;
-}
-.cors-info {
-  font-size: 0.8rem;
-  margin-top: 2rem;
 }
 </style>

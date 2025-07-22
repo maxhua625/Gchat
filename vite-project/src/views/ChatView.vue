@@ -1,4 +1,3 @@
-vue
 <template>
   <div class="chat-wrapper">
     <div class="chat-info-header">
@@ -71,6 +70,8 @@ const sendMessage = async () => {
   try {
     let response;
     const currentHistory = JSON.parse(JSON.stringify(chat.history));
+    // **直接使用干净的 baseURL**
+    const baseURL = config.baseURL;
 
     if (provider === "openai") {
       const messagesForAPI = currentHistory.map((msg) => ({
@@ -80,7 +81,7 @@ const sendMessage = async () => {
       response = await api.openai.fetchOpenAIChatCompletion(
         { messages: messagesForAPI, model: settings.activeModel.modelName },
         config.apiKey,
-        config.baseURL
+        baseURL
       );
       chat.addMessage(response.choices[0].message);
     } else if (provider === "gemini") {
@@ -93,7 +94,7 @@ const sendMessage = async () => {
       response = await api.gemini.fetchGeminiCompletion(
         { model: settings.activeModel.modelName, data: contentsForAPI },
         config.apiKey,
-        config.baseURL
+        baseURL
       );
       const assistantMessageText = response.candidates[0].content.parts[0].text;
       chat.addMessage({
@@ -102,7 +103,9 @@ const sendMessage = async () => {
       });
     }
   } catch (error) {
-    const errorMessage = `获取回复失败: ${error.message || "未知错误"}`;
+    const errorMessage = `获取回复失败: ${
+      error.response?.data?.error?.message || error.message || "未知错误"
+    }`;
     chat.addMessage({ role: "assistant", content: errorMessage });
     console.error("Full error object:", error);
   } finally {

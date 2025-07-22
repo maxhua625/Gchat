@@ -11,40 +11,59 @@ app.use(express.json());
 app.post("/api/proxy", async (req, res) => {
   const { baseURL, path, method, apiKey, data } = req.body;
 
-  if (!baseURL || !path || !method || !apiKey) {
-    return res.status(400).json({
-      error: "Missing required parameters: baseURL, path, method, apiKey",
-    });
+  if (!baseURL || !path || !method) {
+    // apiKey 不再是必须的，因为gemini的apiKey在path里
+    return res
+      .status(400)
+      .json({ error: "Missing required parameters: baseURL, path, method" });
   }
 
   const url = `${baseURL}${path}`;
 
   // --- 主要的改动在这里 ---
-  // 1. 创建一个基础的 axios 配置对象
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  // 只有当 apiKey 存在且不为空时，才添加 Authorization 头
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
+
   const axiosConfig = {
     method: method,
     url: url,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: headers,
   };
 
-  // 2. 只有当请求方法是 'post' (或 put, patch) 时，才添加 data 属性
   if (method.toLowerCase() === "post") {
     axiosConfig.data = data;
   }
   // --- 改动结束 ---
 
   try {
-    // 3. 使用构建好的配置对象发起请求
     const response = await axios(axiosConfig);
     res.json(response.data);
   } catch (error) {
-    console.error("Proxy Error:", error.response?.data || error.message);
-    res
-      .status(error.response?.status || 500)
-      .json(error.response?.data || { error: error.message });
+    // 增强日志记录，打印出完整的错误对象
+    console.error("--- PROXY ERROR ---");
+    if (error.response) {
+      console.error("Status:", error.response.status);
+      console.error("Headers:", error.response.headers);
+      console.error("Data:", error.response.data);
+    } else if (error.request) {
+      console.error("Request made but no response received:", error.request);
+    } else {
+      console.error("Error setting up request:", error.message);
+    }
+    console.error("Original Axios Config:", error.config);
+    console.error("--- END PROXY ERROR ---");
+
+    res.status(error.response?.status || 500).json(
+      error.response?.data || {
+        error: "An unknown error occurred in the proxy.",
+      }
+    );
   }
 });
 
