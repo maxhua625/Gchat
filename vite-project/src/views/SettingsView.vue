@@ -2,18 +2,9 @@
   <div class="settings-page">
     <h2>应用设置</h2>
 
-    <!-- OpenAI 设置区域 -->
     <div class="settings-card">
       <h3>OpenAI API</h3>
-      <div class="form-group">
-        <label for="openai-url">API 地址</label>
-        <input
-          id="openai-url"
-          type="text"
-          v-model="settings.openai.baseURL"
-          placeholder="例如：https://api.openai.com"
-        />
-      </div>
+      <!-- URL 输入框已被移除，因为后端会处理 -->
       <div class="form-group">
         <label for="openai-key">API 密钥 (sk-...)</label>
         <input
@@ -24,10 +15,7 @@
         />
       </div>
       <div class="button-group">
-        <button
-          @click="testConnection('openai')"
-          :disabled="testing.openai || !settings.openai.baseURL"
-        >
+        <button @click="testConnection('openai')" :disabled="testing.openai">
           {{ testing.openai ? "测试中..." : "测试连接" }}
         </button>
         <span
@@ -48,10 +36,7 @@
             v-for="model in settings.openai.models"
             :key="model.id"
             :value="model.id"
-            :selected="
-              model.id === settings.activeModel.modelName &&
-              settings.activeModel.provider === 'openai'
-            "
+            :selected="model.id === settings.activeModel.modelName"
           >
             {{ model.id }}
           </option>
@@ -59,18 +44,9 @@
       </div>
     </div>
 
-    <!-- Gemini 设置区域 -->
     <div class="settings-card">
       <h3>Google Gemini API</h3>
-      <div class="form-group">
-        <label for="gemini-url">API 地址</label>
-        <input
-          id="gemini-url"
-          type="text"
-          v-model="settings.gemini.baseURL"
-          placeholder="例如：https://generativelanguage.googleapis.com"
-        />
-      </div>
+      <!-- URL 输入框已被移除 -->
       <div class="form-group">
         <label for="gemini-key">API 密钥</label>
         <input
@@ -81,10 +57,7 @@
         />
       </div>
       <div class="button-group">
-        <button
-          @click="testConnection('gemini')"
-          :disabled="testing.gemini || !settings.gemini.baseURL"
-        >
+        <button @click="testConnection('gemini')" :disabled="testing.gemini">
           {{ testing.gemini ? "测试中..." : "测试连接" }}
         </button>
         <span
@@ -106,8 +79,7 @@
             :key="model.name"
             :value="model.name.split('/')[1]"
             :selected="
-              model.name.split('/')[1] === settings.activeModel.modelName &&
-              settings.activeModel.provider === 'gemini'
+              model.name.split('/')[1] === settings.activeModel.modelName
             "
           >
             {{ model.name.split("/")[1] }}
@@ -122,29 +94,32 @@
 
 <script setup>
 import { ref } from "vue";
-import { useSettingsStore } from "@/store/settingsStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import api from "@/api";
 
 const settings = useSettingsStore();
-const testing = ref({ openai: false, gemini: false });
+
+const testing = ref({
+  openai: false,
+  gemini: false,
+});
 
 const testConnection = async (provider) => {
   testing.value[provider] = true;
   settings[provider].connected = false;
 
-  // **直接使用用户输入的干净的 URL，不再添加任何代理前缀**
   const apiKey = settings[provider].apiKey;
-  const baseURL = settings[provider].baseURL;
 
   try {
     let response;
+    // 调用更新后的、更简单的 API 函数
     if (provider === "openai") {
-      response = await api.openai.fetchOpenAIModels(apiKey, baseURL);
+      response = await api.openai.fetchOpenAIModels(apiKey);
       settings.openai.models = response.data
         .filter((m) => m.id.includes("gpt"))
         .sort((a, b) => b.id.localeCompare(a.id));
     } else if (provider === "gemini") {
-      response = await api.gemini.fetchGeminiModels(apiKey, baseURL);
+      response = await api.gemini.fetchGeminiModels(apiKey);
       settings.gemini.models = response.models.filter((m) =>
         m.supportedGenerationMethods.includes("generateContent")
       );
@@ -152,9 +127,7 @@ const testConnection = async (provider) => {
     settings[provider].connected = true;
     alert(`${provider.toUpperCase()} 连接成功!`);
   } catch (error) {
-    // 错误提示现在会更具体
-    const errorMessage = error.response?.data?.error?.message || error.message;
-    alert(`连接失败: ${errorMessage}`);
+    alert(`连接失败: ${error.response?.data?.error || error.message}`);
     console.error(error);
   } finally {
     testing.value[provider] = false;
@@ -163,12 +136,12 @@ const testConnection = async (provider) => {
 
 const updateActiveModel = (provider, modelName) => {
   settings.activeModel = { provider, modelName };
-  alert(`默认模型已切换为: ${provider.toUpperCase()} - ${modelName}`);
+  alert(`默认模型已切换为: ${provider} - ${modelName}`);
 };
 </script>
 
 <style scoped>
-/* 样式与之前版本完全相同 */
+/* 样式保持不变，这里省略以保持简洁 */
 .settings-page {
   padding: 2rem;
   max-width: 800px;
@@ -192,7 +165,7 @@ const updateActiveModel = (provider, modelName) => {
 label {
   display: block;
   margin-bottom: 0.5rem;
-  font-weight: bold;
+  font-weight: 700;
 }
 input,
 select {
@@ -211,13 +184,13 @@ button {
   padding: 0.75rem 1.5rem;
   border: none;
   background-color: #4caf50;
-  color: white;
+  color: #fff;
   border-radius: 8px;
   cursor: pointer;
   font-size: 1rem;
 }
 button:disabled {
-  background-color: #cccccc;
+  background-color: #ccc;
 }
 .success-icon {
   font-size: 1.5rem;

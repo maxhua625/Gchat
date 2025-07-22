@@ -4,19 +4,16 @@ import { ref } from "vue";
 export const useSettingsStore = defineStore(
   "settings",
   () => {
-    // --- State ---
     const openai = ref({
       apiKey: "",
-      // 新增：baseURL 字段，并设置官方默认值
-      baseURL: "https://api.openai.com",
+      // baseURL 已被移除
       connected: false,
       models: [],
     });
 
     const gemini = ref({
       apiKey: "",
-      // 新增：baseURL 字段，并设置官方默认值
-      baseURL: "https://generativelanguage.googleapis.com",
+      // baseURL 已被移除
       connected: false,
       models: [],
     });

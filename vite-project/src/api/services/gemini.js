@@ -1,21 +1,32 @@
-import { proxyRequest } from "../apiService.js";
+import request from "../request.js";
 
-/**
- * 获取 Google Gemini Pro 的聊天回复 (通过我们的后端代理)
- */
-export const fetchGeminiCompletion = (params, apiKey, baseURL) => {
+function forwardRequest(endpoint, method, apiKey, data) {
+  // Gemini 的 key 作为 URL 参数，所以 endpoint 需要拼接
+  const finalEndpoint = `${endpoint}?key=${apiKey}`;
+  return request({
+    url: "/api/forward",
+    method: "post",
+    data: {
+      provider: "gemini",
+      endpoint: finalEndpoint, // 发送拼接好的 endpoint
+      method,
+      // apiKey 在这里仅用于拼接，不需要再传给后端 header
+      apiKey: null,
+      data,
+    },
+  });
+}
+
+export const fetchGeminiCompletion = (params, apiKey) => {
   const model = "gemini-pro";
-  // 正确的拼接方式：baseURL + 具体的 API 路径
-  const targetURL = `${baseURL}/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  const targetHeaders = { "Content-Type": "application/json" };
-  return proxyRequest(targetURL, "post", targetHeaders, params);
+  return forwardRequest(
+    `/v1beta/models/${model}:generateContent`,
+    "post",
+    apiKey,
+    params
+  );
 };
 
-/**
- * 测试连接并获取 Gemini 的模型列表 (通过我们的后端代理)
- */
-export const fetchGeminiModels = (apiKey, baseURL) => {
-  // 关键修正：确保只拼接一次 API 路径
-  const targetURL = `${baseURL}/v1beta/models?key=${apiKey}`;
-  return proxyRequest(targetURL, "get", {}, null);
+export const fetchGeminiModels = (apiKey) => {
+  return forwardRequest("/v1beta/models", "get", apiKey, null);
 };

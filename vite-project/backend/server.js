@@ -5,63 +5,75 @@ import cors from "cors";
 const app = express();
 const PORT = 3000;
 
+// API 提供商的根地址“地图”
+const PROVIDER_BASE_URLS = {
+  openai: "https://api.openai.com",
+  gemini: "https://generativelanguage.googleapis.com",
+};
+
 app.use(cors());
 app.use(express.json());
 
-app.post("/api/proxy", async (req, res) => {
-  const { url, method, headers, data } = req.body;
+app.post("/api/forward", async (req, res) => {
+  // 我们使用一个更清晰的端点名
+  // 从前端接收更简单的指令
+  const { provider, endpoint, method, apiKey, data } = req.body;
 
-  if (!url) {
-    return res.status(400).json({ error: "Target URL is required" });
+  if (!provider || !PROVIDER_BASE_URLS[provider]) {
+    return res
+      .status(400)
+      .json({ error: "A valid provider (openai/gemini) is required" });
+  }
+  if (!endpoint) {
+    return res.status(400).json({ error: "Target endpoint is required" });
   }
 
+  // 后端在这里构建最终的、绝对正确的 URL
+  const baseURL = PROVIDER_BASE_URLS[provider];
+  const finalURL = baseURL + endpoint;
+
   const requestMethod = method?.toUpperCase() || "GET";
-  console.log(`Proxying request to: ${requestMethod} ${url}`);
+  console.log(`Forwarding request to: ${requestMethod} ${finalURL}`);
 
   try {
-    const axiosConfig = {
-      url,
-      method: requestMethod,
-      headers: { ...headers },
-    };
+    const headers = {};
+    // 根据提供商设置不同的认证头
+    if (provider === "openai") {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+    headers["Content-Type"] = "application/json";
 
-    delete axiosConfig.headers["host"];
-    delete axiosConfig.headers["origin"];
-    delete axiosConfig.headers["referer"];
-    delete axiosConfig.headers["connection"];
+    const axiosConfig = {
+      url: finalURL,
+      method: requestMethod,
+      headers: headers,
+    };
 
     if (requestMethod !== "GET" && data) {
       axiosConfig.data = data;
     }
 
     const response = await axios(axiosConfig);
-
     res.status(response.status).json(response.data);
   } catch (error) {
-    // 关键：在后端控制台打印出最详细的错误信息
-    console.error("--- PROXY ERROR ---");
-    console.error("Request to:", url);
+    console.error("--- FORWARDING ERROR ---");
+    console.error("Request to:", finalURL);
     if (error.response) {
-      // 如果错误来自目标 API 服务器 (例如 OpenAI, Google)
       console.error("Status:", error.response.status);
       console.error("Data:", error.response.data);
-    } else if (error.request) {
-      // 如果请求已发出但没有收到响应
-      console.error("No response received:", error.request);
     } else {
-      // 如果是请求设置阶段的错误
-      console.error("Error setting up request:", error.message);
+      console.error("Error:", error.message);
     }
-    console.error("--- END PROXY ERROR ---");
+    console.error("--- END FORWARDING ERROR ---");
 
     const status = error.response?.status || 500;
     const errorData = error.response?.data || {
-      error: "An unknown error occurred in the proxy.",
+      error: "An error occurred in the forwarding server.",
     };
     res.status(status).json(errorData);
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Backend proxy server listening on port ${PORT}`);
+  console.log(`Backend forwarding server listening on port ${PORT}`);
 });

@@ -38,8 +38,8 @@
 import { ref, watch, nextTick, onMounted } from "vue";
 import Message from "@/components/Message.vue";
 import api from "@/api";
-import { useChatStore } from "@/store/chatStore";
-import { useSettingsStore } from "@/store/settingsStore";
+import { useChatStore } from "@/stores/chatStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
