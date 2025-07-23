@@ -8,7 +8,6 @@
       >
     </div>
 
-    <!-- message-list 和 chat-input-area 保持不变 -->
     <div class="message-list" ref="messageListRef">
       <Message
         v-for="(item, index) in chat.history"
@@ -53,10 +52,9 @@ const messageListRef = ref(null);
 const sendMessage = async () => {
   if (!userInput.value || isLoading.value) return;
 
-  // 从 activeModel 中获取当前激活的提供商
   const provider = settings.activeModel.provider;
-  // (关键修改) 从新的 providerConfig 数据结构中获取配置
   const config = settings.providerConfig[provider];
+  const activeModelName = settings.activeModel.modelName;
 
   if (!config || !config.apiKey) {
     alert(`请先在设置页面配置 ${provider.toUpperCase()} 的 API Key!`);
@@ -73,43 +71,63 @@ const sendMessage = async () => {
     let response;
     const currentHistory = JSON.parse(JSON.stringify(chat.history));
 
-    // 根据 provider 调用不同的 API
-    const fetchFunc =
-      api[provider].fetchOpenAIChatCompletion ||
-      api[provider].fetchCustomChatCompletion ||
-      api[provider].fetchDeepseekChatCompletion ||
-      api[provider].fetchGeminiCompletion;
+    // (关键修复) 彻底移除不稳定的 fetchFunc 变量，
+    // 使用清晰的 if/else if 结构，为每个 provider 单独处理，确保调用正确的函数和参数
 
-    if (provider === "gemini") {
+    if (provider === "openai") {
+      const messagesForAPI = currentHistory.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+      const params = { model: activeModelName, messages: messagesForAPI };
+      response = await api.openai.fetchOpenAIChatCompletion(
+        params,
+        config.apiKey
+      );
+      chat.addMessage(response.choices[0].message);
+    } else if (provider === "deepseek") {
+      const messagesForAPI = currentHistory.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+      const params = { model: activeModelName, messages: messagesForAPI };
+      response = await api.deepseek.fetchDeepseekChatCompletion(
+        params,
+        config.apiKey
+      );
+      chat.addMessage(response.choices[0].message);
+    } else if (provider === "custom") {
+      const messagesForAPI = currentHistory.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+      const params = { model: activeModelName, messages: messagesForAPI };
+      response = await api.custom.fetchCustomChatCompletion(
+        params,
+        config.apiKey,
+        config.baseURL
+      );
+      chat.addMessage(response.choices[0].message);
+    } else if (provider === "gemini") {
+      // (关键修复) 为 Gemini 构造并传递绝对正确的参数
       const contentsForAPI = {
         contents: currentHistory.map((msg) => ({
           role: msg.role === "assistant" ? "model" : "user",
           parts: [{ text: msg.content }],
         })),
       };
-      response = await fetchFunc(contentsForAPI, config.apiKey);
+
+      // 第一个参数是模型名称，第二个是聊天内容，第三个是 apiKey
+      response = await api.gemini.fetchGeminiCompletion(
+        activeModelName,
+        contentsForAPI,
+        config.apiKey
+      );
       const assistantMessageText = response.candidates[0].content.parts[0].text;
       chat.addMessage({
         role: "assistant",
         content: assistantMessageText.trim(),
       });
-    } else {
-      // OpenAI, DeepSeek, Custom 共享相同的逻辑
-      const messagesForAPI = currentHistory.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
-      const params = {
-        model: settings.activeModel.modelName,
-        messages: messagesForAPI,
-      };
-      // 对于 custom，我们需要额外传递 baseURL
-      if (provider === "custom") {
-        response = await fetchFunc(params, config.apiKey, config.baseURL);
-      } else {
-        response = await fetchFunc(params, config.apiKey);
-      }
-      chat.addMessage(response.choices[0].message);
     }
   } catch (error) {
     const errorMessage = `获取回复失败: ${
@@ -143,7 +161,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 样式保持不变 */
 .chat-wrapper {
   display: flex;
   flex-direction: column;
