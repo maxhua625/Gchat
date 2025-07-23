@@ -2,129 +2,70 @@
   <div class="settings-page">
     <h2>应用设置</h2>
 
-    <!-- OpenAI 设置卡片 (保持不变) -->
+    <!-- 这是我们唯一的、统一的设置卡片 -->
     <div class="settings-card">
-      <h3>OpenAI API</h3>
+      <!-- 1. API 提供商选择器 -->
       <div class="form-group">
-        <label for="openai-key">API 密钥 (sk-...)</label>
-        <input
-          id="openai-key"
-          type="password"
-          v-model="settings.openai.apiKey"
-          placeholder="请输入你的 OpenAI API Key"
-        />
-      </div>
-      <div class="button-group">
-        <button @click="testConnection('openai')" :disabled="testing.openai">
-          {{ testing.openai ? "测试中..." : "测试连接" }}
-        </button>
-        <span
-          v-if="settings.openai.connected"
-          class="success-icon"
-          title="连接成功"
-          >✅</span
-        >
-      </div>
-      <div v-if="settings.openai.connected" class="form-group model-selector">
-        <label for="openai-model">选择默认模型</label>
-        <select
-          id="openai-model"
-          @change="updateActiveModel('openai', $event.target.value)"
-        >
-          <option
-            v-for="model in settings.openai.models"
-            :key="model.id"
-            :value="model.id"
-            :selected="model.id === settings.activeModel.modelName"
-          >
-            {{ model.id }}
-          </option>
+        <label for="provider-select">选择 API 提供商</label>
+        <select id="provider-select" v-model="selectedProvider">
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="custom">自定义 (兼容 OpenAI 格式)</option>
         </select>
       </div>
-    </div>
 
-    <!-- Gemini 设置卡片 (保持不变) -->
-    <div class="settings-card">
-      <h3>Google Gemini API</h3>
-      <div class="form-group">
-        <label for="gemini-key">API 密钥</label>
+      <!-- 分隔线 -->
+      <hr class="divider" />
+
+      <!-- 2. 根据选择，动态显示对应的设置项 -->
+
+      <!-- 自定义 API 的 URL 输入框 -->
+      <div v-if="selectedProvider === 'custom'" class="form-group">
+        <label for="custom-url">API 地址 (例如: http://my-proxy.com)</label>
         <input
-          id="gemini-key"
-          type="password"
-          v-model="settings.gemini.apiKey"
-          placeholder="请输入你的 Gemini API Key"
+          id="custom-url"
+          type="text"
+          v-model="config.baseURL"
+          placeholder="请输入你的反向代理或第三方 API 地址"
         />
       </div>
+
+      <!-- 通用的 API 密钥输入框 -->
+      <div class="form-group">
+        <label for="api-key">API 密钥</label>
+        <input
+          id="api-key"
+          type="password"
+          v-model="config.apiKey"
+          placeholder="请输入 API Key"
+        />
+      </div>
+
+      <!-- 统一的按钮和状态显示 -->
       <div class="button-group">
-        <button @click="testConnection('gemini')" :disabled="testing.gemini">
-          {{ testing.gemini ? "测试中..." : "测试连接" }}
+        <button @click="testConnection" :disabled="testing">
+          {{ testing ? "测试中..." : "测试连接" }}
         </button>
-        <span
-          v-if="settings.gemini.connected"
-          class="success-icon"
-          title="连接成功"
+        <span v-if="config.connected" class="success-icon" title="连接成功"
           >✅</span
         >
       </div>
-      <div v-if="settings.gemini.connected" class="form-group model-selector">
-        <label for="gemini-model">选择默认模型</label>
-        <select
-          id="gemini-model"
-          @change="updateActiveModel('gemini', $event.target.value)"
-        >
-          <option
-            v-for="model in settings.gemini.models"
-            :key="model.name"
-            :value="model.name.split('/')[1]"
-            :selected="
-              model.name.split('/')[1] === settings.activeModel.modelName
-            "
-          >
-            {{ model.name.split("/")[1] }}
-          </option>
-        </select>
-      </div>
-    </div>
 
-    <!-- (关键新增) DeepSeek 设置卡片 -->
-    <div class="settings-card">
-      <h3>DeepSeek API</h3>
-      <div class="form-group">
-        <label for="deepseek-key">API 密钥 (sk-...)</label>
-        <input
-          id="deepseek-key"
-          type="password"
-          v-model="settings.deepseek.apiKey"
-          placeholder="请输入你的 DeepSeek API Key"
-        />
-      </div>
-      <div class="button-group">
-        <button
-          @click="testConnection('deepseek')"
-          :disabled="testing.deepseek"
-        >
-          {{ testing.deepseek ? "测试中..." : "测试连接" }}
-        </button>
-        <span
-          v-if="settings.deepseek.connected"
-          class="success-icon"
-          title="连接成功"
-          >✅</span
-        >
-      </div>
-      <div v-if="settings.deepseek.connected" class="form-group model-selector">
-        <label for="deepseek-model">选择默认模型</label>
+      <!-- 统一的模型选择框 -->
+      <div v-if="config.connected" class="form-group model-selector">
+        <label for="model-select">选择默认模型</label>
         <select
-          id="deepseek-model"
-          @change="updateActiveModel('deepseek', $event.target.value)"
+          id="model-select"
+          @change="updateActiveModel($event.target.value)"
         >
           <option
-            v-for="model in settings.deepseek.models"
-            :key="model.id"
-            :value="model.id"
-            :selected="model.id === settings.activeModel.modelName"
+            v-for="model in config.models"
+            :key="model.id || model.name"
+            :value="getModelName(model)"
+            :selected="getModelName(model) === settings.activeModel.modelName"
           >
-            {{ model.id }}
+            {{ getModelName(model) }}
           </option>
         </select>
       </div>
@@ -135,85 +76,114 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { useSettingsStore } from "@/stores/settingsStore";
 import api from "@/api";
 
 const settings = useSettingsStore();
 
-const testing = ref({
-  openai: false,
-  gemini: false,
-  deepseek: false, // 新增
+// 本地状态，用于控制当前选中的提供商
+const selectedProvider = ref(settings.activeModel.provider);
+const testing = ref(false);
+
+// 计算属性，根据 selectedProvider 动态返回对应的配置对象
+// 这是让界面响应式的关键！
+const config = computed(() => {
+  return settings.providerConfig[selectedProvider.value];
 });
 
-const testConnection = async (provider) => {
-  testing.value[provider] = true;
-  settings[provider].connected = false;
+// 从模型对象中提取名称的辅助函数
+const getModelName = (model) => {
+  // Gemini 的模型名称在 model.name 里，格式为 "models/gemini-pro"
+  if (selectedProvider.value === "gemini") {
+    return model.name.split("/")[1];
+  }
+  // 其他的都在 model.id 里
+  return model.id;
+};
 
-  const apiKey = settings[provider].apiKey;
+const testConnection = async () => {
+  testing.value = true;
+  config.value.connected = false; // 重置连接状态
+
+  const provider = selectedProvider.value;
+  const apiKey = config.value.apiKey;
 
   try {
     let response;
-    if (provider === "openai") {
-      response = await api.openai.fetchOpenAIModels(apiKey);
-      settings.openai.models = response.data
-        .filter((m) => m.id.includes("gpt"))
-        .sort((a, b) => b.id.localeCompare(a.id));
-    } else if (provider === "gemini") {
-      response = await api.gemini.fetchGeminiModels(apiKey);
-      settings.gemini.models = response.models.filter((m) =>
+    // 使用新的、统一的 API 调用方式
+    const fetchModelsFunc =
+      api[provider].fetchOpenAIModels ||
+      api[provider].fetchGeminiModels ||
+      api[provider].fetchCustomModels ||
+      api[provider].fetchDeepseekModels;
+
+    if (provider === "custom") {
+      const baseURL = config.value.baseURL;
+      if (!baseURL) throw new Error("自定义 API 地址不能为空!");
+      response = await fetchModelsFunc(apiKey, baseURL);
+      config.value.models = response.data;
+    } else {
+      response = await fetchModelsFunc(apiKey);
+    }
+
+    // 根据不同的 provider 解析 models
+    if (provider === "gemini") {
+      config.value.models = response.models.filter((m) =>
         m.supportedGenerationMethods.includes("generateContent")
       );
-    } else if (provider === "deepseek") {
-      // (关键新增)
-      response = await api.deepseek.fetchDeepseekModels(apiKey);
-      settings.deepseek.models = response.data
-        .filter((m) => m.id.includes("deepseek"))
-        .sort((a, b) => b.id.localeCompare(a.id));
+    } else {
+      // OpenAI, DeepSeek, Custom 都遵循 data 数组的格式
+      config.value.models = response.data.sort((a, b) =>
+        b.id.localeCompare(a.id)
+      );
     }
-    settings[provider].connected = true;
+
+    config.value.connected = true;
     alert(`${provider.toUpperCase()} 连接成功!`);
   } catch (error) {
     alert(`连接失败: ${error.response?.data?.error || error.message}`);
     console.error(error);
   } finally {
-    testing.value[provider] = false;
+    testing.value = false;
   }
 };
 
-const updateActiveModel = (provider, modelName) => {
-  settings.activeModel = { provider, modelName };
-  alert(`默认模型已切换为: ${provider} - ${modelName}`);
+const updateActiveModel = (modelName) => {
+  settings.activeModel = { provider: selectedProvider.value, modelName };
+  alert(`默认模型已切换为: ${selectedProvider.value} - ${modelName}`);
 };
 </script>
 
 <style scoped>
-/* 样式保持不变 */
 .settings-page {
   padding: 2rem;
-  max-width: 800px;
+  max-width: 600px;
   margin: 0 auto;
 }
 .settings-card {
   background: #fff;
-  padding: 1.5rem;
+  padding: 1.5rem 2rem;
   border-radius: 8px;
-  margin-bottom: 2rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 .form-group {
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
+}
+.divider {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 2rem 0;
 }
 .model-selector {
   margin-top: 1.5rem;
-  border-top: 1px solid #eee;
   padding-top: 1.5rem;
 }
 label {
   display: block;
   margin-bottom: 0.5rem;
-  font-weight: 700;
+  font-weight: bold;
+  color: #333;
 }
 input,
 select {
@@ -222,6 +192,7 @@ select {
   border: 1px solid #ccc;
   border-radius: 4px;
   box-sizing: border-box;
+  font-size: 1rem;
 }
 .button-group {
   display: flex;
@@ -232,13 +203,18 @@ button {
   padding: 0.75rem 1.5rem;
   border: none;
   background-color: #4caf50;
-  color: #fff;
+  color: white;
   border-radius: 8px;
   cursor: pointer;
   font-size: 1rem;
+  transition: background-color 0.2s;
+}
+button:hover {
+  background-color: #45a049;
 }
 button:disabled {
-  background-color: #ccc;
+  background-color: #cccccc;
+  cursor: not-allowed;
 }
 .success-icon {
   font-size: 1.5rem;
@@ -246,5 +222,6 @@ button:disabled {
 .info {
   text-align: center;
   color: #888;
+  margin-top: 2rem;
 }
 </style>

@@ -8,6 +8,7 @@
       >
     </div>
 
+    <!-- message-list 和 chat-input-area 保持不变 -->
     <div class="message-list" ref="messageListRef">
       <Message
         v-for="(item, index) in chat.history"
@@ -52,10 +53,12 @@ const messageListRef = ref(null);
 const sendMessage = async () => {
   if (!userInput.value || isLoading.value) return;
 
+  // 从 activeModel 中获取当前激活的提供商
   const provider = settings.activeModel.provider;
-  const apiKey = settings[provider]?.apiKey;
+  // (关键修改) 从新的 providerConfig 数据结构中获取配置
+  const config = settings.providerConfig[provider];
 
-  if (!apiKey) {
+  if (!config || !config.apiKey) {
     alert(`请先在设置页面配置 ${provider.toUpperCase()} 的 API Key!`);
     return;
   }
@@ -70,49 +73,50 @@ const sendMessage = async () => {
     let response;
     const currentHistory = JSON.parse(JSON.stringify(chat.history));
 
-    if (provider === "openai") {
-      const messagesForAPI = currentHistory.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
-      response = await api.openai.fetchOpenAIChatCompletion(
-        { model: settings.activeModel.modelName, messages: messagesForAPI },
-        apiKey
-      );
-      chat.addMessage(response.choices[0].message);
-    }
-    // (关键新增) 添加对 deepseek 的处理
-    else if (provider === "deepseek") {
-      const messagesForAPI = currentHistory.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
-      // DeepSeek 的调用方式和 OpenAI 完全相同
-      response = await api.deepseek.fetchDeepseekChatCompletion(
-        { model: settings.activeModel.modelName, messages: messagesForAPI },
-        apiKey
-      );
-      chat.addMessage(response.choices[0].message);
-    } else if (provider === "gemini") {
+    // 根据 provider 调用不同的 API
+    const fetchFunc =
+      api[provider].fetchOpenAIChatCompletion ||
+      api[provider].fetchCustomChatCompletion ||
+      api[provider].fetchDeepseekChatCompletion ||
+      api[provider].fetchGeminiCompletion;
+
+    if (provider === "gemini") {
       const contentsForAPI = {
         contents: currentHistory.map((msg) => ({
           role: msg.role === "assistant" ? "model" : "user",
           parts: [{ text: msg.content }],
         })),
       };
-      response = await api.gemini.fetchGeminiCompletion(contentsForAPI, apiKey);
+      response = await fetchFunc(contentsForAPI, config.apiKey);
       const assistantMessageText = response.candidates[0].content.parts[0].text;
       chat.addMessage({
         role: "assistant",
         content: assistantMessageText.trim(),
       });
+    } else {
+      // OpenAI, DeepSeek, Custom 共享相同的逻辑
+      const messagesForAPI = currentHistory.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+      const params = {
+        model: settings.activeModel.modelName,
+        messages: messagesForAPI,
+      };
+      // 对于 custom，我们需要额外传递 baseURL
+      if (provider === "custom") {
+        response = await fetchFunc(params, config.apiKey, config.baseURL);
+      } else {
+        response = await fetchFunc(params, config.apiKey);
+      }
+      chat.addMessage(response.choices[0].message);
     }
   } catch (error) {
     const errorMessage = `获取回复失败: ${
       error.response?.data?.error?.message || error.message
     }`;
     chat.addMessage({ role: "assistant", content: errorMessage });
-    console.error(errorMessage);
+    console.error(error);
   } finally {
     isLoading.value = false;
   }

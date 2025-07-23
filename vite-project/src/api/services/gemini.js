@@ -1,6 +1,6 @@
 import request from "../request.js";
 
-// 这个函数保持不变，用于发送聊天
+// 这个函数用于发送聊天，保持不变
 function callGeminiGateway(endpoint, method, apiKey, data) {
   return request({
     url: `/api/gemini/${endpoint}`,
@@ -24,10 +24,10 @@ export const fetchGeminiCompletion = (params, apiKey) => {
   );
 };
 
-// (关键修改) 这个函数现在调用专属的后端路由
+// (关键修复) 这个函数现在将调用专属的、绝对正确的后端路由
 export const fetchGeminiModels = (apiKey) => {
   return request({
-    // 直接调用新的、硬编码的后端路由，不再传递 endpoint
+    // 直接调用我们为“测试连接”专门创建的后端路由
     url: "/api/gemini/get-models",
     method: "post",
     data: {

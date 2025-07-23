@@ -75,14 +75,13 @@ app.post("/api/gemini/:endpoint(*)", async (req, res) => {
   }
 });
 
-// --- (关键新增) DeepSeek 专属路由 ---
+// --- DeepSeek 路由 (保持不变) ---
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 app.post("/api/deepseek/:endpoint(*)", async (req, res) => {
   const { endpoint } = req.params;
   const { apiKey, data, method = "post" } = req.body;
   if (!apiKey) return res.status(401).json({ error: "API key is required." });
   try {
-    // DeepSeek 的认证方式和 OpenAI 完全相同
     const response = await axios({
       url: `${DEEPSEEK_BASE_URL}/${endpoint}`,
       method: method,
@@ -95,6 +94,30 @@ app.post("/api/deepseek/:endpoint(*)", async (req, res) => {
     res.json(response.data);
   } catch (error) {
     handleApiError(res, error, "deepseek");
+  }
+});
+
+// --- (关键新增) 自定义 API 专属路由 ---
+app.post("/api/custom", async (req, res) => {
+  // 从前端接收完整的 URL 和所有必要信息
+  const { url, apiKey, data, method = "post" } = req.body;
+
+  if (!url) return res.status(400).json({ error: "Target URL is required." });
+  if (!apiKey) return res.status(401).json({ error: "API key is required." });
+
+  try {
+    const response = await axios({
+      url: url, // 直接使用前端传来的完整 URL
+      method: method,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      data: data,
+    });
+    res.json(response.data);
+  } catch (error) {
+    handleApiError(res, error, "custom");
   }
 });
 
