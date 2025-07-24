@@ -6,6 +6,7 @@
         >{{ settings.activeModel.provider }} /
         {{ settings.activeModel.modelName }}</strong
       >
+      | 当前预设: <strong>{{ presets.activePreset.name }}</strong>
     </div>
 
     <div class="message-list" ref="messageListRef">
@@ -42,12 +43,58 @@ import Message from "@/components/Message.vue";
 import api from "@/api";
 import { useChatStore } from "@/stores/chatStore";
 import { useSettingsStore } from "@/stores/settingsStore";
+// 1. 导入新的 stores
+import { usePresetsStore } from "@/stores/presetsStore";
+import { useWorldbookStore } from "@/stores/worldbookStore";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
+// 2. 使用新的 stores
+const presets = usePresetsStore();
+const worldbook = useWorldbookStore();
+
 const userInput = ref("");
 const isLoading = ref(false);
 const messageListRef = ref(null);
+
+// 3. (核心逻辑) 构建最终发送给 API 的消息数组
+const buildFinalMessages = () => {
+  const finalMessages = [];
+  const activePreset = presets.activePreset;
+  const lastMessage = userInput.value;
+
+  // 注入世界书内容
+  worldbook.entries.forEach((entry) => {
+    if (entry.enabled) {
+      const keywords = entry.keys.split(",").map((k) => k.trim());
+      // 如果是全局条目，或者最后一个用户消息包含关键词
+      if (entry.isGlobal || keywords.some((k) => lastMessage.includes(k))) {
+        // 简单地将世界书内容作为一个 system 消息注入
+        finalMessages.push({
+          role: "system",
+          content: `[World Info: ${entry.content}]`,
+        });
+      }
+    }
+  });
+
+  // 注入预设中的提示词
+  if (activePreset && activePreset.prompts) {
+    activePreset.prompts.forEach((prompt) => {
+      if (prompt.enabled && prompt.content) {
+        finalMessages.push({
+          role: prompt.role || "system",
+          content: prompt.content,
+        });
+      }
+    });
+  }
+
+  // 添加聊天历史
+  finalMessages.push(...JSON.parse(JSON.stringify(chat.history)));
+
+  return finalMessages;
+};
 
 const sendMessage = async () => {
   if (!userInput.value || isLoading.value) return;
@@ -62,62 +109,35 @@ const sendMessage = async () => {
   }
 
   isLoading.value = true;
-  const userMessageContent = userInput.value;
-  userInput.value = "";
 
-  chat.addMessage({ role: "user", content: userMessageContent });
+  // 4. 将用户当前输入的消息先添加到历史记录中
+  chat.addMessage({ role: "user", content: userInput.value });
+  // 5. 构建包含所有上下文的最终消息列表
+  const finalMessages = buildFinalMessages();
+
+  userInput.value = ""; // 清空输入框
 
   try {
     let response;
-    const currentHistory = JSON.parse(JSON.stringify(chat.history));
 
-    // (关键修复) 彻底移除不稳定的 fetchFunc 变量，
-    // 使用清晰的 if/else if 结构，为每个 provider 单独处理，确保调用正确的函数和参数
+    // 获取预设中的模型参数，如果不存在则使用默认值
+    const activePreset = presets.activePreset;
+    const modelParams = {
+      model: activeModelName,
+      temperature: activePreset?.temperature ?? 1.0,
+      top_p: activePreset?.top_p ?? 1.0,
+      top_k: activePreset?.top_k ?? 40,
+      // ...可以添加更多参数
+    };
 
-    if (provider === "openai") {
-      const messagesForAPI = currentHistory.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
-      const params = { model: activeModelName, messages: messagesForAPI };
-      response = await api.openai.fetchOpenAIChatCompletion(
-        params,
-        config.apiKey
-      );
-      chat.addMessage(response.choices[0].message);
-    } else if (provider === "deepseek") {
-      const messagesForAPI = currentHistory.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
-      const params = { model: activeModelName, messages: messagesForAPI };
-      response = await api.deepseek.fetchDeepseekChatCompletion(
-        params,
-        config.apiKey
-      );
-      chat.addMessage(response.choices[0].message);
-    } else if (provider === "custom") {
-      const messagesForAPI = currentHistory.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
-      const params = { model: activeModelName, messages: messagesForAPI };
-      response = await api.custom.fetchCustomChatCompletion(
-        params,
-        config.apiKey,
-        config.baseURL
-      );
-      chat.addMessage(response.choices[0].message);
-    } else if (provider === "gemini") {
-      // (关键修复) 为 Gemini 构造并传递绝对正确的参数
+    if (provider === "gemini") {
+      // Gemini 需要不同的消息格式
       const contentsForAPI = {
-        contents: currentHistory.map((msg) => ({
+        contents: finalMessages.map((msg) => ({
           role: msg.role === "assistant" ? "model" : "user",
           parts: [{ text: msg.content }],
         })),
       };
-
-      // 第一个参数是模型名称，第二个是聊天内容，第三个是 apiKey
       response = await api.gemini.fetchGeminiCompletion(
         activeModelName,
         contentsForAPI,
@@ -128,6 +148,20 @@ const sendMessage = async () => {
         role: "assistant",
         content: assistantMessageText.trim(),
       });
+    } else {
+      // OpenAI, DeepSeek, Custom 共享相同的逻辑
+      const params = { ...modelParams, messages: finalMessages };
+      let fetchFunc;
+      if (provider === "custom") {
+        fetchFunc = api.custom.fetchCustomChatCompletion;
+        response = await fetchFunc(params, config.apiKey, config.baseURL);
+      } else {
+        fetchFunc =
+          api[provider].fetchOpenAIChatCompletion ||
+          api[provider].fetchDeepseekChatCompletion;
+        response = await fetchFunc(params, config.apiKey);
+      }
+      chat.addMessage(response.choices[0].message);
     }
   } catch (error) {
     const errorMessage = `获取回复失败: ${
@@ -161,6 +195,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* Scoped styles from your previous request */
 .chat-wrapper {
   display: flex;
   flex-direction: column;

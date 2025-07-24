@@ -3,6 +3,8 @@
     <header>
       <nav>
         <RouterLink to="/">聊天</RouterLink>
+        <RouterLink to="/presets">预设</RouterLink>
+        <RouterLink to="/worldbook">世界书</RouterLink>
         <RouterLink to="/settings">设置</RouterLink>
       </nav>
     </header>
@@ -43,7 +45,7 @@ nav a.router-link-exact-active {
 }
 main {
   flex-grow: 1;
-  /* 确保 main 区域可以滚动，而不是整个页面 */
   overflow-y: auto;
+  background-color: #f0f2f5;
 }
 </style>
