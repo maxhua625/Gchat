@@ -3,10 +3,10 @@ import { ref, computed } from "vue";
 
 const defaultPreset = {
   name: "新建预设",
-  temperature: 1.15,
+  temperature: 1,
   frequency_penalty: 0,
   presence_penalty: 0,
-  top_p: 0.98,
+  top_p: 1,
   top_k: 40,
   repetition_penalty: 1,
   prompts: [
@@ -16,6 +16,9 @@ const defaultPreset = {
       role: "user",
       content: "请在这里输入你的主提示词...",
       enabled: true,
+      injection_position: 0,
+      injection_depth: 4,
+      forbid_overrides: false,
     },
   ],
 };
@@ -51,17 +54,32 @@ export const usePresetsStore = defineStore(
     function importPreset(jsonData) {
       try {
         const importedData = JSON.parse(jsonData);
-        if (importedData.prompts && Array.isArray(importedData.prompts)) {
-          // 为导入的预设添加一个名字，如果它没有的话
-          if (!importedData.name) {
-            importedData.name = `导入的预设 ${new Date().toLocaleTimeString()}`;
-          }
-          presetsList.value.push(importedData);
-          activePresetIndex.value = presetsList.value.length - 1;
-          alert("预设导入成功！");
-        } else {
-          throw new Error("无效的预设文件格式。");
+        if (!importedData.prompts || !Array.isArray(importedData.prompts)) {
+          throw new Error("无效的预设文件格式，缺少 prompts 数组。");
         }
+
+        // (关键修改) 确保每个导入的 prompt 都有所有必要的属性
+        importedData.prompts.forEach((prompt) => {
+          // 如果 enabled 属性不存在 (undefined)，则默认为 true
+          if (prompt.enabled === undefined) {
+            prompt.enabled = true;
+          }
+          // 为旧格式或不完整的格式补充默认值
+          if (prompt.injection_position === undefined)
+            prompt.injection_position = 0;
+          if (prompt.injection_depth === undefined) prompt.injection_depth = 4;
+          if (prompt.forbid_overrides === undefined)
+            prompt.forbid_overrides = false;
+          if (prompt.system_prompt === undefined) prompt.system_prompt = false;
+        });
+
+        if (!importedData.name) {
+          importedData.name = `导入的预设 ${new Date().toLocaleTimeString()}`;
+        }
+
+        presetsList.value.push(importedData);
+        activePresetIndex.value = presetsList.value.length - 1;
+        alert("预设导入成功！");
       } catch (error) {
         alert(`导入失败: ${error.message}`);
         console.error(error);

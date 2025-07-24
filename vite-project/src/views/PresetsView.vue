@@ -60,42 +60,94 @@
           <table>
             <thead>
               <tr>
-                <th>启用</th>
+                <th title="是否启用">启</th>
                 <th>名称</th>
                 <th>角色</th>
                 <th class="content-col">内容</th>
+                <th title="注入位置">位置</th>
+                <th title="注入深度">深度</th>
+                <th title="禁止覆盖">禁</th>
                 <th>操作</th>
               </tr>
             </thead>
-            <tbody>
-              <tr v-for="(prompt, index) in activePreset.prompts" :key="index">
-                <td><input type="checkbox" v-model="prompt.enabled" /></td>
-                <td>
-                  <input
-                    type="text"
-                    v-model="prompt.name"
-                    class="table-input"
-                  />
-                </td>
-                <td>
-                  <select v-model="prompt.role" class="table-select">
-                    <option>system</option>
-                    <option>user</option>
-                    <option>assistant</option>
-                  </select>
-                </td>
-                <td class="content-col">
-                  <textarea
-                    v-model="prompt.content"
-                    class="table-textarea"
-                  ></textarea>
-                </td>
-                <td>
-                  <button @click="deletePrompt(index)" class="delete-btn-small">
-                    删除
-                  </button>
-                </td>
-              </tr>
+            <tbody @drop="handleDrop" @dragover.prevent @dragenter.prevent>
+              <template
+                v-for="(prompt, index) in activePreset.prompts"
+                :key="index"
+              >
+                <!-- (关键新增) 特殊处理“分隔线”条目 -->
+                <tr
+                  v-if="prompt.name && prompt.name.includes('——分隔线——')"
+                  class="divider-row"
+                >
+                  <td colspan="8">
+                    <div class="divider-content">
+                      <span>{{ prompt.name }}</span>
+                    </div>
+                  </td>
+                </tr>
+                <!-- 正常的提示词行 -->
+                <tr
+                  v-else
+                  :draggable="true"
+                  @dragstart="handleDragStart($event, index)"
+                  @dragover="handleDragOver($event, index)"
+                  @dragleave="handleDragLeave"
+                  @dragend="handleDragEnd"
+                  :class="[
+                    getPromptRowClass(prompt),
+                    { 'drag-over-highlight': dragOverIndex === index },
+                  ]"
+                  class="draggable-row"
+                >
+                  <td><input type="checkbox" v-model="prompt.enabled" /></td>
+                  <td>
+                    <input
+                      type="text"
+                      v-model="prompt.name"
+                      class="table-input"
+                    />
+                  </td>
+                  <td>
+                    <select v-model="prompt.role" class="table-select">
+                      <option>system</option>
+                      <option>user</option>
+                      <option>assistant</option>
+                    </select>
+                  </td>
+                  <td class="content-col">
+                    <textarea
+                      v-model="prompt.content"
+                      class="table-textarea"
+                    ></textarea>
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      v-model.number="prompt.injection_position"
+                      class="table-input-small"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      v-model.number="prompt.injection_depth"
+                      class="table-input-small"
+                    />
+                  </td>
+                  <td>
+                    <input type="checkbox" v-model="prompt.forbid_overrides" />
+                  </td>
+                  <td>
+                    <button
+                      @click="deletePrompt(index)"
+                      class="delete-btn-small"
+                    >
+                      删除
+                    </button>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -111,6 +163,8 @@ import { usePresetsStore } from "@/stores/presetsStore";
 
 const store = usePresetsStore();
 const fileInput = ref(null);
+const draggedIndex = ref(null);
+const dragOverIndex = ref(null);
 
 const modelParams = ref([
   {
@@ -148,15 +202,26 @@ const modelParams = ref([
 
 const activePreset = computed(() => store.activePreset);
 
+// (关键新增) 根据 prompt 名称中的 emoji 返回不同的 CSS 类
+const getPromptRowClass = (prompt) => {
+  if (!prompt.name) return "";
+  if (prompt.name.includes("✅")) return "prompt-type-exclusive";
+  if (prompt.name.includes("🔓")) return "prompt-type-jailbreak";
+  if (prompt.name.includes("☑️")) return "prompt-type-optional";
+  if (prompt.name.includes("🔵")) return "prompt-type-semifixed";
+  return "";
+};
+
 const addPrompt = () => {
-  if (!activePreset.value.prompts) {
-    activePreset.value.prompts = [];
-  }
+  if (!activePreset.value.prompts) activePreset.value.prompts = [];
   activePreset.value.prompts.push({
     name: "新提示词",
     role: "system",
     content: "",
     enabled: true,
+    injection_position: 0,
+    injection_depth: 4,
+    forbid_overrides: false,
   });
 };
 
@@ -171,7 +236,6 @@ const triggerImport = () => {
 const handleFileUpload = (event) => {
   const file = event.target.files[0];
   if (!file) return;
-
   const reader = new FileReader();
   reader.onload = (e) => {
     store.importPreset(e.target.result);
@@ -179,10 +243,41 @@ const handleFileUpload = (event) => {
   };
   reader.readAsText(file);
 };
+
+// --- 拖拽排序的全部处理函数 (保持不变) ---
+const handleDragStart = (event, index) => {
+  draggedIndex.value = index;
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", index);
+};
+const handleDragOver = (event, index) => {
+  event.preventDefault();
+  if (index !== draggedIndex.value) {
+    dragOverIndex.value = index;
+  }
+};
+const handleDragLeave = () => {
+  dragOverIndex.value = null;
+};
+const handleDrop = (event) => {
+  event.preventDefault();
+  const startIndex = parseInt(event.dataTransfer.getData("text/plain"), 10);
+  const targetIndex = dragOverIndex.value;
+  if (targetIndex !== null && startIndex !== targetIndex) {
+    const prompts = activePreset.value.prompts;
+    const [draggedItem] = prompts.splice(startIndex, 1);
+    prompts.splice(targetIndex, 0, draggedItem);
+  }
+  handleDragEnd();
+};
+const handleDragEnd = () => {
+  draggedIndex.value = null;
+  dragOverIndex.value = null;
+};
 </script>
 
 <style scoped>
-/* Scoped styles from your previous request, with generic names */
+/* 原有样式保持不变，只增加新样式 */
 .page-layout {
   display: flex;
   height: 100%;
@@ -229,7 +324,6 @@ const handleFileUpload = (event) => {
 .sidebar-actions button {
   width: 100%;
 }
-
 .editor-content {
   flex-grow: 1;
   padding: 2rem;
@@ -255,7 +349,6 @@ const handleFileUpload = (event) => {
   padding-bottom: 0.5rem;
   margin-bottom: 1.5rem;
 }
-
 .param-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -268,9 +361,8 @@ const handleFileUpload = (event) => {
 .form-group input[type="number"] {
   font-size: 1rem;
 }
-
 .prompts-table-wrapper {
-  max-height: 400px;
+  max-height: 500px;
   overflow-y: auto;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -290,6 +382,8 @@ th {
   background-color: #f8f9fa;
   position: sticky;
   top: 0;
+  z-index: 1;
+  font-size: 0.9em;
 }
 .table-input,
 .table-textarea,
@@ -298,15 +392,18 @@ th {
   border: 1px solid #eee;
   padding: 0.5rem;
   border-radius: 4px;
+  font-size: 0.9em;
+}
+.table-input-small {
+  width: 60px;
 }
 .table-textarea {
   min-height: 80px;
   resize: vertical;
 }
 .content-col {
-  width: 50%;
+  width: 45%;
 }
-
 .delete-btn {
   background: none;
   border: none;
@@ -327,7 +424,6 @@ li.active .delete-btn {
 .add-prompt-btn {
   margin-top: 1rem;
 }
-
 button {
   padding: 0.5rem 1rem;
   border: none;
@@ -339,4 +435,40 @@ button {
 button:hover {
   background-color: #0056b3;
 }
+.draggable-row {
+  cursor: grab;
+  user-select: none;
+}
+.draggable-row:active {
+  cursor: grabbing;
+}
+.drag-over-highlight {
+  border-top: 2px solid #007bff;
+}
+
+/* (关键新增) 新增的样式 */
+.divider-row td {
+  padding: 0;
+  border-left: none;
+  border-right: none;
+}
+.divider-content {
+  text-align: center;
+  color: #888;
+  padding: 0.5rem;
+  background-color: #f8f9fa;
+  font-weight: bold;
+}
+.prompt-type-exclusive {
+  background-color: rgba(40, 167, 69, 0.1);
+} /* 绿色 ✅ */
+.prompt-type-jailbreak {
+  background-color: rgba(220, 53, 69, 0.1);
+} /* 红色 🔓 */
+.prompt-type-optional {
+  background-color: rgba(255, 193, 7, 0.1);
+} /* 黄色 ☑️ */
+.prompt-type-semifixed {
+  background-color: rgba(0, 123, 255, 0.1);
+} /* 蓝色 🔵 */
 </style>
