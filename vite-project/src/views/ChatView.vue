@@ -10,7 +10,6 @@
     </div>
 
     <div class="message-list" ref="messageListRef">
-      <!-- (关键修改) 渲染当前激活的聊天历史 -->
       <Message
         v-for="(item, index) in chat.activeChatHistory"
         :key="index"
@@ -22,7 +21,6 @@
     </div>
 
     <div class="chat-input-area">
-      <!-- (关键新增) 聊天管理菜单 -->
       <div class="chat-actions">
         <button
           class="menu-button"
@@ -34,19 +32,31 @@
         <div v-if="isMenuOpen" class="dropdown-menu">
           <ul>
             <li @click="handleNewChat">➕ 开始新聊天</li>
-            <li @click="handleDeleteChat" class="delete-option">
-              🗑️ 删除当前聊天
-            </li>
             <li class="separator"></li>
             <li class="menu-header">选择聊天记录</li>
             <div class="chat-history-list">
+              <!-- (关键修改) 循环渲染聊天列表，并为每个条目添加删除按钮 -->
               <li
                 v-for="chatSession in chat.chats"
                 :key="chatSession.id"
-                @click="handleSwitchChat(chatSession.id)"
                 :class="{ active: chatSession.id === chat.activeChatId }"
               >
-                {{ chatSession.name }}
+                <span
+                  class="chat-name"
+                  @click="handleSwitchChat(chatSession.id)"
+                >
+                  {{ chatSession.name }}
+                </span>
+                <!-- 为删除按钮绑定正确的 chatSession.id -->
+                <button
+                  @click.stop="
+                    handleDeleteChat(chatSession.id, chatSession.name)
+                  "
+                  class="delete-chat-btn"
+                  title="删除此聊天"
+                >
+                  🗑️
+                </button>
               </li>
             </div>
             <li class="separator"></li>
@@ -88,17 +98,15 @@ const worldbook = useWorldbookStore();
 const userInput = ref("");
 const isLoading = ref(false);
 const messageListRef = ref(null);
-const isMenuOpen = ref(false); // 控制菜单的显示和隐藏
+const isMenuOpen = ref(false);
 
-// --- (关键修改) 使用新的 store 逻辑 ---
+// ... buildFinalMessages 和 sendMessage 函数保持不变 ...
 const buildFinalMessages = () => {
   const finalMessages = [];
   const activePreset = presets.activePreset;
-  // (关键修改) 注意：这里我们使用 activeChatHistory，但排除最后一个用户消息，因为 userInput 才是最新的
   const currentHistory = chat.activeChatHistory.slice(0, -1);
   const lastMessage =
     chat.activeChatHistory[chat.activeChatHistory.length - 1]?.content || "";
-
   worldbook.entries.forEach((entry) => {
     if (entry.enabled) {
       const keywords = entry.keys.split(",").map((k) => k.trim());
@@ -110,7 +118,6 @@ const buildFinalMessages = () => {
       }
     }
   });
-
   if (activePreset && activePreset.prompts) {
     activePreset.prompts.forEach((prompt) => {
       if (prompt.enabled && prompt.content) {
@@ -121,31 +128,22 @@ const buildFinalMessages = () => {
       }
     });
   }
-
-  // (关键修改) 添加当前会话的历史记录
   finalMessages.push(...currentHistory);
-  finalMessages.push({ role: "user", content: lastMessage }); // 确保最新的用户消息在最后
-
+  finalMessages.push({ role: "user", content: lastMessage });
   return finalMessages;
 };
-
 const sendMessage = async () => {
   if (!userInput.value || isLoading.value) return;
-
-  // ... (provider 和 config 的获取逻辑保持不变)
   const provider = settings.activeModel.provider;
   const config = settings.providerConfig[provider];
-  // ...
-
+  if (!config || !config.apiKey) {
+    alert(`请先在设置页面配置 ${provider.toUpperCase()} 的 API Key!`);
+    return;
+  }
   isLoading.value = true;
-
-  // (关键修改) 使用 store 的 action 添加消息到当前会话
   chat.addMessage({ role: "user", content: userInput.value });
-  userInput.value = ""; // 清空输入框
-
+  userInput.value = "";
   const finalMessages = buildFinalMessages();
-
-  // ... (try...catch...finally 块中的 API 调用逻辑保持不变)
   try {
     let response;
     const activePreset = presets.activePreset;
@@ -194,27 +192,19 @@ const sendMessage = async () => {
   }
 };
 
-const scrollToBottom = async () => {
-  await nextTick();
-  const listEl = messageListRef.value;
-  if (listEl) listEl.scrollTop = listEl.scrollHeight;
-};
-
-// --- (关键新增) 聊天管理菜单的事件处理函数 ---
+// --- 聊天管理菜单的事件处理函数 (关键修改) ---
 const handleNewChat = () => {
   chat.startNewChat();
   isMenuOpen.value = false;
 };
 
-const handleDeleteChat = () => {
-  if (
-    confirm(
-      `你确定要删除当前聊天 "${chat.activeChat.name}" 吗？这个操作无法撤销。`
-    )
-  ) {
-    chat.deleteChat(chat.activeChatId);
+// (关键修改) handleDeleteChat 现在接收 chatId 和 chatName 作为参数
+const handleDeleteChat = (chatId, chatName) => {
+  if (confirm(`你确定要删除聊天 "${chatName}" 吗？这个操作无法撤销。`)) {
+    chat.deleteChat(chatId); // 调用 store 中正确的删除 action
   }
-  isMenuOpen.value = false;
+  // 不需要关闭菜单，以便用户可以连续删除
+  // isMenuOpen.value = false;
 };
 
 const handleSwitchChat = (chatId) => {
@@ -227,31 +217,33 @@ const handleAttachFile = () => {
   isMenuOpen.value = false;
 };
 
-// 监听当前激活的聊天历史长度变化，自动滚动
+// ... watch 和 onMounted 保持不变 ...
+const scrollToBottom = async () => {
+  await nextTick();
+  const listEl = messageListRef.value;
+  if (listEl) listEl.scrollTop = listEl.scrollHeight;
+};
 watch(
   () => chat.activeChatHistory.length,
   () => {
     scrollToBottom();
   }
 );
-
 onMounted(() => {
-  // (关键修改) 确保应用加载时，至少存在一个聊天会话
   chat.ensureChatExists();
   scrollToBottom();
 });
 </script>
 
 <style scoped>
-/* (关键新增) 聊天管理菜单的样式 */
+/* 原有样式保持不变，只增加和修改新样式 */
 .chat-input-area {
-  /* ... 原有样式 ... */
-  display: flex; /* 改为 flex 布局 */
-  align-items: center; /* 垂直居中 */
+  display: flex;
+  align-items: center;
 }
 .chat-actions {
-  position: relative; /* 为下拉菜单定位 */
-  margin-right: 0.5rem; /* 与输入框的间距 */
+  position: relative;
+  margin-right: 0.5rem;
 }
 .menu-button {
   background-color: #f0f2f5;
@@ -268,10 +260,9 @@ onMounted(() => {
 .menu-button:hover {
   background-color: #e9ecef;
 }
-
 .dropdown-menu {
   position: absolute;
-  bottom: 50px; /* 定位在按钮上方 */
+  bottom: 50px;
   left: 0;
   background-color: white;
   border: 1px solid #ccc;
@@ -287,23 +278,21 @@ onMounted(() => {
   margin: 0;
 }
 .dropdown-menu li {
+  display: flex; /* (关键修改) 使用 flex 布局来对齐内容 */
+  justify-content: space-between;
+  align-items: center;
   padding: 0.75rem 1rem;
   cursor: pointer;
 }
 .dropdown-menu li:hover {
   background-color: #f0f2f5;
 }
-.dropdown-menu li.delete-option {
-  color: #dc3545;
-}
-.dropdown-menu li.delete-option:hover {
-  background-color: #f8d7da;
-}
 .dropdown-menu li.separator {
   height: 1px;
   background-color: #e9ecef;
   margin: 0.5rem 0;
   padding: 0;
+  display: block;
 }
 .dropdown-menu li.menu-header {
   font-weight: bold;
@@ -323,8 +312,30 @@ onMounted(() => {
   background-color: #007bff;
   color: white;
 }
+.chat-name {
+  flex-grow: 1; /* (关键新增) 让聊天名称占据大部分空间 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.delete-chat-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #6c757d;
+  padding: 0 0.5rem;
+  display: none; /* 默认隐藏 */
+}
+/* (关键新增) 当鼠标悬停在列表项上时，显示删除按钮 */
+.dropdown-menu li:hover .delete-chat-btn {
+  display: inline-block;
+}
+.delete-chat-btn:hover {
+  color: #dc3545;
+}
 
-/* 原有样式保持不变 */
+/* 其他样式 */
 .chat-wrapper {
   display: flex;
   flex-direction: column;
