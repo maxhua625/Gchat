@@ -37,9 +37,11 @@
         />
       </div>
 
+      <!-- (关键修改) 全面升级和中文化的模型参数区域 -->
       <section class="editor-section">
         <h4>模型参数</h4>
         <div class="param-grid">
+          <!-- 数值型参数 -->
           <div class="form-group" v-for="param in modelParams" :key="param.key">
             <label :for="param.key" :title="param.description">{{
               param.label
@@ -49,13 +51,34 @@
               type="number"
               v-model.number="activePreset[param.key]"
               :step="param.step"
+              :min="param.min"
+              :max="param.max"
             />
+          </div>
+          <!-- 开关型参数 -->
+          <div
+            class="form-group switch-group"
+            v-for="param in switchParams"
+            :key="param.key"
+          >
+            <label :for="param.key" :title="param.description">{{
+              param.label
+            }}</label>
+            <label class="switch">
+              <input
+                :id="param.key"
+                type="checkbox"
+                v-model="activePreset[param.key]"
+              />
+              <span class="slider round"></span>
+            </label>
           </div>
         </div>
       </section>
 
       <section class="editor-section">
         <h4>提示词注入 (Prompts)</h4>
+        <!-- 提示词表格保持不变 -->
         <div class="prompts-table-wrapper">
           <table>
             <thead>
@@ -75,7 +98,6 @@
                 v-for="(prompt, index) in activePreset.prompts"
                 :key="index"
               >
-                <!-- (关键新增) 特殊处理“分隔线”条目 -->
                 <tr
                   v-if="prompt.name && prompt.name.includes('——分隔线——')"
                   class="divider-row"
@@ -86,7 +108,6 @@
                     </div>
                   </td>
                 </tr>
-                <!-- 正常的提示词行 -->
                 <tr
                   v-else
                   :draggable="true"
@@ -166,43 +187,100 @@ const fileInput = ref(null);
 const draggedIndex = ref(null);
 const dragOverIndex = ref(null);
 
+// (关键修改) 更新参数列表并中文化
 const modelParams = ref([
   {
     key: "temperature",
-    label: "Temperature",
-    description: "随机性，值越高越随机",
+    label: "温度 (Temperature)",
+    description: "随机性，值越高越随机，越富有创造力。",
     step: 0.01,
+    min: 0,
+    max: 2,
   },
   {
     key: "top_p",
-    label: "Top P",
-    description: "核心采样，保留概率最高的词汇",
+    label: "核心采样 (Top P)",
+    description: "保留概率最高的词汇，直到总概率达到该值。",
     step: 0.01,
+    min: 0,
+    max: 1,
   },
-  { key: "top_k", label: "Top K", description: "保留 K 个最可能的词", step: 1 },
+  {
+    key: "top_k",
+    label: "Top K",
+    description: "在每一步生成中，只考虑 K 个最可能的词。",
+    step: 1,
+    min: 0,
+  },
   {
     key: "repetition_penalty",
-    label: "Repetition Penalty",
-    description: "重复惩罚，值越高越不易重复",
+    label: "重复惩罚",
+    description: "对重复出现的词进行惩罚，值越高越不易重复。",
     step: 0.01,
+    min: 0,
   },
   {
     key: "frequency_penalty",
-    label: "Frequency Penalty",
-    description: "频率惩罚",
+    label: "频率惩罚",
+    description: "对出现频率高的词进行惩罚，降低模型生成常用词的概率。",
     step: 0.01,
+    min: 0,
+    max: 2,
   },
   {
     key: "presence_penalty",
-    label: "Presence Penalty",
-    description: "存在惩罚",
+    label: "存在惩罚",
+    description: "对已出现过的词进行惩罚，鼓励模型引入新概念。",
     step: 0.01,
+    min: 0,
+    max: 2,
+  },
+  {
+    key: "max_context_tokens",
+    label: "上下文长度",
+    description: "每次请求发送给模型的最大历史消息长度（以 Token 计）。",
+    step: 1,
+    min: 0,
+  },
+  {
+    key: "max_tokens",
+    label: "最大回复长度",
+    description: "模型单次回复生成的最大 Token 数量。",
+    step: 1,
+    min: 0,
+  },
+  {
+    key: "n",
+    label: "备选回复数",
+    description:
+      "为一条用户消息生成 N 个不同的回复以供选择 (注意: 这会消耗 N 倍的 Token)。",
+    step: 1,
+    min: 1,
+    max: 5,
+  },
+]);
+
+const switchParams = ref([
+  {
+    key: "stream",
+    label: "流式传输",
+    description: "是否让模型以打字机的效果逐字返回内容。",
+  },
+  {
+    key: "image_support",
+    label: "发送图片",
+    description: "（前端功能）是否允许在聊天框中发送图片（需要模型支持）。",
+  },
+  {
+    key: "request_chain_of_thought",
+    label: "请求思维链",
+    description: "（前端功能）是否在请求中加入引导模型进行思考的指令。",
   },
 ]);
 
 const activePreset = computed(() => store.activePreset);
 
-// (关键新增) 根据 prompt 名称中的 emoji 返回不同的 CSS 类
+// ... 其他函数 (getPromptRowClass, addPrompt, deletePrompt, triggerImport, handleFileUpload, 拖拽函数) 保持不变
 const getPromptRowClass = (prompt) => {
   if (!prompt.name) return "";
   if (prompt.name.includes("✅")) return "prompt-type-exclusive";
@@ -211,7 +289,6 @@ const getPromptRowClass = (prompt) => {
   if (prompt.name.includes("🔵")) return "prompt-type-semifixed";
   return "";
 };
-
 const addPrompt = () => {
   if (!activePreset.value.prompts) activePreset.value.prompts = [];
   activePreset.value.prompts.push({
@@ -224,15 +301,12 @@ const addPrompt = () => {
     forbid_overrides: false,
   });
 };
-
 const deletePrompt = (index) => {
   activePreset.value.prompts.splice(index, 1);
 };
-
 const triggerImport = () => {
   fileInput.value.click();
 };
-
 const handleFileUpload = (event) => {
   const file = event.target.files[0];
   if (!file) return;
@@ -243,8 +317,6 @@ const handleFileUpload = (event) => {
   };
   reader.readAsText(file);
 };
-
-// --- 拖拽排序的全部处理函数 (保持不变) ---
 const handleDragStart = (event, index) => {
   draggedIndex.value = index;
   event.dataTransfer.effectAllowed = "move";
@@ -277,13 +349,74 @@ const handleDragEnd = () => {
 </script>
 
 <style scoped>
-/* 原有样式保持不变，只增加新样式 */
+/* (关键新增) 开关 (Switch) 的样式 */
+.switch-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 28px;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: 0.4s;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: 0.4s;
+}
+input:checked + .slider {
+  background-color: #2196f3;
+}
+input:focus + .slider {
+  box-shadow: 0 0 1px #2196f3;
+}
+input:checked + .slider:before {
+  transform: translateX(22px);
+}
+.slider.round {
+  border-radius: 34px;
+}
+.slider.round:before {
+  border-radius: 50%;
+}
+
+/* 其他样式保持不变，只微调 */
+.param-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+} /* 稍微加宽以容纳中文 */
+.sidebar {
+  width: 260px;
+} /* 稍微加宽 */
+th {
+  font-size: 0.8em;
+} /* 缩小表头字体以容纳更多列 */
 .page-layout {
   display: flex;
   height: 100%;
 }
 .sidebar {
-  width: 240px;
   flex-shrink: 0;
   background-color: #e9ecef;
   padding: 1rem;
@@ -349,13 +482,8 @@ const handleDragEnd = () => {
   padding-bottom: 0.5rem;
   margin-bottom: 1.5rem;
 }
-.param-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1.5rem;
-}
 .form-group label {
-  font-weight: normal;
+  font-weight: bold;
   color: #555;
 }
 .form-group input[type="number"] {
@@ -383,7 +511,6 @@ th {
   position: sticky;
   top: 0;
   z-index: 1;
-  font-size: 0.9em;
 }
 .table-input,
 .table-textarea,
@@ -445,8 +572,6 @@ button:hover {
 .drag-over-highlight {
   border-top: 2px solid #007bff;
 }
-
-/* (关键新增) 新增的样式 */
 .divider-row td {
   padding: 0;
   border-left: none;
@@ -461,14 +586,14 @@ button:hover {
 }
 .prompt-type-exclusive {
   background-color: rgba(40, 167, 69, 0.1);
-} /* 绿色 ✅ */
+}
 .prompt-type-jailbreak {
   background-color: rgba(220, 53, 69, 0.1);
-} /* 红色 🔓 */
+}
 .prompt-type-optional {
   background-color: rgba(255, 193, 7, 0.1);
-} /* 黄色 ☑️ */
+}
 .prompt-type-semifixed {
   background-color: rgba(0, 123, 255, 0.1);
-} /* 蓝色 🔵 */
+}
 </style>
