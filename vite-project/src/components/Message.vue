@@ -1,6 +1,7 @@
 <template>
+  <!-- (关键修改) 整个包裹器根据角色应用不同的 class -->
   <div class="message-wrapper" :class="`role-${item.role}`">
-    <!-- (关键修改) 复选框现在按需显示 -->
+    <!-- 复选框，现在会根据父元素的 flex 布局自动定位 -->
     <input
       v-if="chat.isSelectionModeActive"
       type="checkbox"
@@ -8,6 +9,8 @@
       :checked="isSelected"
       @change="toggleSelection"
     />
+
+    <!-- 消息体 -->
     <div class="message-item" :class="item.role">
       <div class="avatar">
         <div class="avatar-initials" :style="{ backgroundColor: avatarColor }">
@@ -15,7 +18,6 @@
         </div>
       </div>
       <div class="message-content">
-        <!-- (关键修改) 楼层和编辑按钮 -->
         <div class="message-header">
           <span class="floor-number">#{{ floor }}</span>
           <button @click="startEditing" class="edit-button" title="编辑">
@@ -23,7 +25,6 @@
           </button>
         </div>
 
-        <!-- (关键修改) 内容区域，支持编辑模式 -->
         <div v-if="isEditing" class="edit-area">
           <textarea
             v-model="editableContent"
@@ -37,7 +38,6 @@
         </div>
         <div v-else class="text" v-html="renderedContent"></div>
 
-        <!-- AI 消息的操作按钮 -->
         <div
           v-if="item.role === 'assistant' && !isEditing"
           class="message-actions"
@@ -56,7 +56,7 @@ import { useChatStore } from "@/stores/chatStore";
 
 const props = defineProps({
   item: { type: Object, required: true },
-  floor: { type: Number, required: true }, // 接收楼层号
+  floor: { type: Number, required: true },
 });
 
 const emit = defineEmits(["regenerate"]);
@@ -64,10 +64,8 @@ const chat = useChatStore();
 const md = new MarkdownIt();
 const editInputRef = ref(null);
 
-// --- (关键新增) 编辑相关状态 ---
 const isEditing = computed(() => chat.editingMessageId === props.item.id);
 const editableContent = ref(props.item.content);
-
 const isSelected = computed(() => chat.selectedMessages.has(props.item.id));
 const avatarInitial = computed(() => (props.item.role === "user" ? "U" : "G"));
 const avatarColor = computed(() =>
@@ -75,7 +73,6 @@ const avatarColor = computed(() =>
 );
 const renderedContent = computed(() => md.render(props.item.content));
 
-// --- 事件处理函数 ---
 const toggleSelection = () => {
   chat.toggleMessageSelection(props.item.id);
 };
@@ -86,7 +83,6 @@ const emitRegenerate = () => {
 const startEditing = () => {
   editableContent.value = props.item.content;
   chat.editingMessageId = props.item.id;
-  // DOM 更新后自动聚焦
   nextTick(() => {
     editInputRef.value?.focus();
   });
@@ -94,50 +90,57 @@ const startEditing = () => {
 
 const saveEdit = () => {
   chat.updateMessageContent(props.item.id, editableContent.value);
-  chat.editingMessageId = null; // 退出编辑模式
+  chat.editingMessageId = null;
 };
 
 const cancelEdit = () => {
-  chat.editingMessageId = null; // 退出编辑模式
+  chat.editingMessageId = null;
 };
 </script>
 
 <style scoped>
-/* (关键修改) 实现用户消息居右 */
+/* (关键修改) 这是本次修改的核心 */
 .message-wrapper {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-start; /* 垂直方向上对齐项目的起始位置 */
   gap: 8px;
   width: 100%;
 }
+
 .message-wrapper.role-user {
-  justify-content: flex-end; /* 核心：让用户消息的内容靠右 */
-  flex-direction: row-reverse; /* 让复选框也到右边 */
-}
-.message-item.user {
-  flex-direction: row-reverse; /* 让用户头像在右边 */
+  justify-content: flex-end; /* 让所有子元素作为一个整体靠右对齐 */
 }
 
-/* --- 新增和修改的样式 --- */
+/* (关键修改) 消息体内部也需要调整，让用户头像在右边 */
+.message-item.user {
+  flex-direction: row-reverse;
+}
+
+/* --- 原有样式，做了微调以适应新布局 --- */
 .message-checkbox {
   margin-top: 12px;
   cursor: pointer;
 }
+
 .message-item {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  max-width: 80%;
+  max-width: 80%; /* 限制消息的最大宽度 */
 }
+
 .message-content {
   padding: 10px 15px;
   border-radius: 12px;
-  background-color: #fff;
+  background-color: #ffffff;
   width: 100%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
+
 .message-item.user .message-content {
-  background-color: #dcf8c6;
+  background-color: #dcf8c6; /* 用户的消息气泡颜色 */
 }
+
 .message-header {
   display: flex;
   justify-content: space-between;
@@ -146,21 +149,26 @@ const cancelEdit = () => {
   color: #999;
   font-size: 0.8em;
 }
+
 .edit-button {
   background: none;
   border: none;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0; /* 默认隐藏 */
   padding: 0;
+  transition: opacity 0.2s;
 }
+
 .message-item:hover .edit-button {
-  opacity: 1;
+  opacity: 1; /* 鼠标悬停在消息体上时显示 */
 }
+
 .edit-area {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
+
 .edit-textarea {
   width: 100%;
   min-height: 100px;
@@ -170,26 +178,31 @@ const cancelEdit = () => {
   font-family: inherit;
   font-size: 1rem;
 }
+
 .edit-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
 }
+
 .edit-actions button {
   padding: 4px 12px;
   border-radius: 4px;
   border: 1px solid #ccc;
   cursor: pointer;
 }
+
 .message-actions {
   text-align: right;
   margin-top: 8px;
   opacity: 0;
   transition: opacity 0.2s;
 }
+
 .message-item:hover .message-actions {
   opacity: 1;
 }
+
 .message-actions button {
   background: none;
   border: 1px solid #ccc;
@@ -198,7 +211,7 @@ const cancelEdit = () => {
   padding: 2px 6px;
 }
 
-/* --- 原有样式微调 --- */
+/* --- 底层样式，无需改动 --- */
 .avatar {
   flex-shrink: 0;
 }
