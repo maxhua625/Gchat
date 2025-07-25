@@ -10,7 +10,6 @@
     </div>
 
     <div class="message-list" ref="messageListRef">
-      <!-- (关键修改) 传递 floor 属性 -->
       <Message
         v-for="(item, index) in chat.activeChatHistory"
         :key="item.id"
@@ -39,7 +38,6 @@
           <ul>
             <li @click="handleNewChat">➕ 开始新聊天</li>
             <li @click="handleRegenerate">🔄 重新生成</li>
-            <!-- (关键修改) 菜单项更新 -->
             <li @click="handleToggleSelectionMode">
               {{
                 chat.isSelectionModeActive ? "✅ 完成选择" : "🗑️ 选择消息以删除"
@@ -72,7 +70,7 @@
         </div>
       </div>
 
-      <form @submit.prevent="sendMessage(userInput)" class="input-form">
+      <form @submit.prevent="sendMessage" class="input-form">
         <input
           type="text"
           v-model="userInput"
@@ -89,7 +87,6 @@
 </template>
 
 <script setup>
-// ... 其他 import 保持不变
 import { ref, onMounted, nextTick, watch } from "vue";
 import Message from "@/components/Message.vue";
 import api from "@/api";
@@ -99,7 +96,6 @@ import { usePresetsStore } from "@/stores/presetsStore";
 import { useWorldbookStore } from "@/stores/worldbookStore";
 
 const chat = useChatStore();
-// ... 其他 store
 const settings = useSettingsStore();
 const presets = usePresetsStore();
 const worldbook = useWorldbookStore();
@@ -109,26 +105,51 @@ const isLoading = ref(false);
 const messageListRef = ref(null);
 const isMenuOpen = ref(false);
 
-// ... sendMessage, buildFinalMessages, executeApiCall 保持不变
+// (关键修复) 彻底重写 buildFinalMessages 函数，使其健壮且逻辑清晰
 const buildFinalMessages = () => {
   const finalMessages = [];
   const activePreset = presets.activePreset;
   const currentHistory = chat.activeChatHistory;
-  const lastMessage =
-    currentHistory.length > 0
-      ? currentHistory[currentHistory.length - 1].content
-      : "";
+  const lastUserMessage =
+    currentHistory.filter((m) => m.role === "user").pop()?.content || "";
+
+  // 1. 注入世界书内容
   worldbook.entries.forEach((entry) => {
-    if (entry.enabled) {
-      const keywords = entry.keys.split(",").map((k) => k.trim());
-      if (entry.isGlobal || keywords.some((k) => lastMessage.includes(k))) {
+    if (entry.enabled && entry.content) {
+      // (关键修复) 正确处理数组形式的 keys
+      const keywords = Array.isArray(entry.keys) ? entry.keys : [];
+
+      // 判断是否需要注入：是全局条目，或者最后一个用户消息包含任意一个关键词
+      const shouldInject =
+        entry.isGlobal ||
+        (lastUserMessage &&
+          keywords.some((k) => {
+            try {
+              // 尝试将关键词作为正则表达式进行匹配
+              if (k.startsWith("/") && k.endsWith("/")) {
+                const regex = new RegExp(k.slice(1, -1));
+                return regex.test(lastUserMessage);
+              }
+              // 否则作为普通字符串进行匹配
+              return lastUserMessage.includes(k);
+            } catch (e) {
+              console.warn(`无效的世界书关键词正则表达式: ${k}`, e);
+              return false;
+            }
+          }));
+
+      if (shouldInject) {
         finalMessages.push({
           role: "system",
-          content: `[World Info: ${entry.content}]`,
+          content: `[World Info for "${entry.comment || "entry"}": ${
+            entry.content
+          }]`,
         });
       }
     }
   });
+
+  // 2. 注入预设中的提示词
   if (activePreset && activePreset.prompts) {
     activePreset.prompts.forEach((prompt) => {
       if (prompt.enabled && prompt.content) {
@@ -139,16 +160,35 @@ const buildFinalMessages = () => {
       }
     });
   }
+
+  // 3. 添加完整的聊天历史
   finalMessages.push(...currentHistory);
+
   return finalMessages;
 };
+
+// (关键修改) 将 sendMessage 分离为两个函数，逻辑更清晰
 const executeApiCall = async () => {
   isLoading.value = true;
+
   const provider = settings.activeModel.provider;
   const config = settings.providerConfig[provider];
+  const activeModelName = settings.activeModel.modelName;
+
+  // 在请求 API 之前构建最终消息
   const finalMessages = buildFinalMessages();
+
   try {
     let response;
+    const activePreset = presets.activePreset;
+    const modelParams = {
+      model: activeModelName,
+      temperature: activePreset?.temperature,
+      top_p: activePreset?.top_p,
+      top_k: activePreset?.top_k,
+      // ...可以添加更多参数
+    };
+
     if (provider === "gemini") {
       const contentsForAPI = {
         contents: finalMessages.map((msg) => ({
@@ -157,7 +197,7 @@ const executeApiCall = async () => {
         })),
       };
       response = await api.gemini.fetchGeminiCompletion(
-        settings.activeModel.modelName,
+        activeModelName,
         contentsForAPI,
         config.apiKey
       );
@@ -166,55 +206,60 @@ const executeApiCall = async () => {
         content: response.candidates[0].content.parts[0].text.trim(),
       });
     } else {
-      const params = {
-        model: settings.activeModel.modelName,
-        messages: finalMessages,
-      };
+      const params = { ...modelParams, messages: finalMessages };
       let fetchFunc;
       if (provider === "custom") {
         fetchFunc = api.custom.fetchCustomChatCompletion;
         response = await fetchFunc(params, config.apiKey, config.baseURL);
       } else {
+        // OpenAI 和 DeepSeek 共享此逻辑
         fetchFunc =
-          api.openai.fetchOpenAIChatCompletion ||
-          api.deepseek.fetchDeepseekChatCompletion;
+          api[provider].fetchOpenAIChatCompletion ||
+          api[provider].fetchDeepseekChatCompletion;
         response = await fetchFunc(params, config.apiKey);
       }
       chat.addMessage(response.choices[0].message);
     }
   } catch (error) {
-    chat.addMessage({
-      role: "assistant",
-      content: `获取回复失败: ${
-        error.response?.data?.error?.message || error.message
-      }`,
-    });
+    const errorMessage = `获取回复失败: ${
+      error.response?.data?.error?.message || error.message
+    }`;
+    chat.addMessage({ role: "assistant", content: errorMessage });
+    console.error(error);
   } finally {
     isLoading.value = false;
   }
 };
-const sendMessage = async (messageContent) => {
-  if (!messageContent || isLoading.value) return;
+
+const sendMessage = async () => {
+  if (!userInput.value || isLoading.value) return;
+
   const provider = settings.activeModel.provider;
   const config = settings.providerConfig[provider];
   if (!config || !config.apiKey) {
     alert(`请先在设置页面配置 ${provider.toUpperCase()} 的 API Key!`);
     return;
   }
-  chat.addMessage({ role: "user", content: messageContent });
+
+  chat.addMessage({ role: "user", content: userInput.value });
   userInput.value = "";
+
   await executeApiCall();
 };
 
-// --- (关键修改) 新的菜单事件处理函数 ---
+// --- 菜单和生命周期函数 (保持不变) ---
+const handleRegenerate = () => {
+  isMenuOpen.value = false;
+  if (isLoading.value) return;
+  chat.removeLastAssistantMessage();
+  executeApiCall();
+};
 const handleToggleSelectionMode = () => {
   chat.toggleSelectionMode();
-  // 如果不是为了删除，只是单纯退出选择模式，则不需要关闭整个菜单
   if (!chat.isSelectionModeActive) {
     isMenuOpen.value = false;
   }
 };
-
 const handleDeleteSelected = () => {
   if (chat.selectedMessages.size > 0) {
     if (
@@ -223,19 +268,10 @@ const handleDeleteSelected = () => {
       chat.deleteSelectedMessages();
     }
   } else {
-    // 理论上不会触发，因为按钮被 v-if 控制了
-    alert("没有选中的消息。");
+    alert("请先勾选需要删除的消息。");
   }
   isMenuOpen.value = false;
 };
-
-const handleRegenerate = () => {
-  isMenuOpen.value = false;
-  if (isLoading.value) return;
-  chat.removeLastAssistantMessage();
-  executeApiCall();
-};
-
 const handleNewChat = () => {
   chat.startNewChat();
   isMenuOpen.value = false;
@@ -248,8 +284,6 @@ const handleAttachFile = () => {
   alert("附加文件功能正在开发中！");
   isMenuOpen.value = false;
 };
-
-// --- 生命周期钩子和 Watcher ---
 const scrollToBottom = async () => {
   await nextTick();
   const listEl = messageListRef.value;
@@ -268,7 +302,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 原有样式保持不变，只微调 */
+/* 样式保持不变 */
 .chat-wrapper {
   display: flex;
   flex-direction: column;
@@ -344,7 +378,7 @@ onMounted(() => {
 }
 .dropdown-menu li.delete-option {
   color: #dc3545;
-  font-weight: bold;
+  font-weight: 700;
 }
 .dropdown-menu li.delete-option:hover {
   background-color: #f8d7da;
