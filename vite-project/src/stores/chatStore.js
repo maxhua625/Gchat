@@ -5,98 +5,172 @@ export const useChatStore = defineStore(
   "chat",
   () => {
     // --- State ---
-    // 不再是单一的 history，而是一个包含多个 chat 对象的数组
     const chats = ref([]);
-    // 当前激活的聊天会话的 ID
     const activeChatId = ref(null);
+    const selectedMessages = ref(new Set());
 
-    // --- Getters (Computed) ---
-    // 获取当前激活的聊天会话对象
-    const activeChat = computed(() => {
-      return chats.value.find((chat) => chat.id === activeChatId.value);
-    });
-    // 获取当前激活的聊天会话的历史记录
-    const activeChatHistory = computed(() => {
-      return activeChat.value ? activeChat.value.history : [];
-    });
+    // (关键新增) 用于存放当前正在编辑的消息的 ID
+    const editingMessageId = ref(null);
+    // (关键新增) 用于控制是否显示复选框的“选择模式”开关
+    const isSelectionModeActive = ref(false);
+
+    // --- Getters ---
+    const activeChat = computed(() =>
+      chats.value.find((chat) => chat.id === activeChatId.value)
+    );
+    const activeChatHistory = computed(() =>
+      activeChat.value ? activeChat.value.history : []
+    );
 
     // --- Actions ---
 
-    // 开始一个新的聊天
     function startNewChat() {
-      const newChatId = crypto.randomUUID(); // 使用浏览器内置的 API 生成唯一 ID
+      // ... (此函数保持不变)
+      const newChatId = crypto.randomUUID();
       chats.value.unshift({
-        // unshift 将新聊天放在列表顶部
         id: newChatId,
-        name: "新的聊天", // 默认名称
-        history: [],
+        name: "新的聊天",
+        history: [
+          { id: "floor-0", role: "system", content: "在这里编辑对话背景..." },
+        ],
         createdAt: new Date().toISOString(),
       });
-      activeChatId.value = newChatId; // 激活这个新聊天
+      activeChatId.value = newChatId;
+      selectedMessages.value.clear();
+      isSelectionModeActive.value = false;
     }
 
-    // 切换到指定的聊天
-    function switchChat(chatId) {
-      activeChatId.value = chatId;
-    }
-
-    // 删除指定的聊天
-    function deleteChat(chatId) {
-      const index = chats.value.findIndex((chat) => chat.id === chatId);
-      if (index === -1) return;
-
-      chats.value.splice(index, 1);
-
-      // 如果删除的是当前激活的聊天，则需要切换到另一个聊天
-      if (activeChatId.value === chatId) {
-        if (chats.value.length > 0) {
-          // 切换到列表中的第一个聊天
-          activeChatId.value = chats.value[0].id;
-        } else {
-          // 如果没有聊天了，则创建一个新的
-          startNewChat();
-        }
-      }
-    }
-
-    // 向当前激活的聊天中添加一条消息
     function addMessage(message) {
-      if (!activeChat.value) {
-        // 如果没有任何激活的聊天（例如首次加载），则自动创建一个
-        startNewChat();
+      if (!activeChat.value) startNewChat();
+      const messageWithId = { ...message, id: crypto.randomUUID() };
+      if (activeChat.value.history.length === 1 && message.role === "user") {
+        // length === 1 因为有第0层
+        activeChat.value.name = message.content.substring(0, 20);
       }
-
-      // 如果这是会话的第一条用户消息，则用它来命名会话
-      if (activeChat.value.history.length === 0 && message.role === "user") {
-        activeChat.value.name = message.content.substring(0, 20); // 截取前20个字符作为标题
-      }
-
-      activeChat.value.history.push(message);
+      activeChat.value.history.push(messageWithId);
     }
 
-    // (新增) 确保应用加载时至少有一个聊天
+    // (关键新增) 更新指定消息的内容
+    function updateMessageContent(messageId, newContent) {
+      if (!activeChat.value) return;
+      const message = activeChat.value.history.find((m) => m.id === messageId);
+      if (message) {
+        message.content = newContent;
+      }
+    }
+
+    // (关键新增) 切换“选择模式”
+    function toggleSelectionMode() {
+      isSelectionModeActive.value = !isSelectionModeActive.value;
+      // 退出选择模式时，清空所有已选项
+      if (!isSelectionModeActive.value) {
+        selectedMessages.value.clear();
+      }
+    }
+
+    function deleteSelectedMessages() {
+      if (!activeChat.value || selectedMessages.value.size === 0) return;
+      activeChat.value.history = activeChat.value.history.filter(
+        (message) => !selectedMessages.value.has(message.id)
+      );
+      selectedMessages.value.clear();
+      isSelectionModeActive.value = false; // 删除后自动退出选择模式
+    }
+
     function ensureChatExists() {
       if (chats.value.length === 0) {
         startNewChat();
       } else if (!activeChatId.value || !activeChat.value) {
-        // 如果有聊天但没有激活的，则激活第一个
         activeChatId.value = chats.value[0].id;
       }
+      // 确保每个聊天都有第0层
+      chats.value.forEach((chat) => {
+        if (!chat.history.find((m) => m.id === "floor-0")) {
+          chat.history.unshift({
+            id: "floor-0",
+            role: "system",
+            content: "在这里编辑对话背景...",
+          });
+        }
+      });
+      selectedMessages.value.clear();
+      isSelectionModeActive.value = false;
+    }
+
+    // ... (其他函数: switchChat, deleteChat, toggleMessageSelection, removeLastAssistantMessage 保持不变)
+    function switchChat(chatId) {
+      activeChatId.value = chatId;
+      selectedMessages.value.clear();
+      isSelectionModeActive.value = false;
+    }
+    function deleteChat(chatId) {
+      const index = chats.value.findIndex((chat) => chat.id === chatId);
+      if (index === -1) return;
+      chats.value.splice(index, 1);
+      if (activeChatId.value === chatId) {
+        if (chats.value.length > 0) {
+          activeChatId.value = chats.value[0].id;
+        } else {
+          startNewChat();
+        }
+      }
+    }
+    function toggleMessageSelection(messageId) {
+      if (selectedMessages.value.has(messageId)) {
+        selectedMessages.value.delete(messageId);
+      } else {
+        selectedMessages.value.add(messageId);
+      }
+    }
+    function removeLastAssistantMessage() {
+      if (!activeChat.value) return false;
+      const history = activeChat.value.history;
+      if (
+        history.length > 1 &&
+        history[history.length - 1].role === "assistant"
+      ) {
+        history.pop();
+        return true;
+      }
+      return false;
     }
 
     return {
       chats,
       activeChatId,
+      selectedMessages,
+      editingMessageId, // 导出
+      isSelectionModeActive, // 导出
       activeChat,
       activeChatHistory,
       startNewChat,
       switchChat,
       deleteChat,
       addMessage,
+      updateMessageContent, // 导出
+      toggleSelectionMode, // 导出
+      toggleMessageSelection,
+      deleteSelectedMessages,
+      removeLastAssistantMessage,
       ensureChatExists,
     };
   },
   {
-    persist: true,
+    persist: {
+      /* ... (持久化配置保持不变) */ serializer: {
+        serialize: (state) => {
+          const s = {
+            ...state,
+            selectedMessages: Array.from(state.selectedMessages),
+          };
+          return JSON.stringify(s);
+        },
+        deserialize: (str) => {
+          const s = JSON.parse(str);
+          s.selectedMessages = new Set(s.selectedMessages);
+          return s;
+        },
+      },
+    },
   }
 );
