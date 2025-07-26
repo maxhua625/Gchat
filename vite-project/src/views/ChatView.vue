@@ -1,12 +1,9 @@
 <template>
   <div class="chat-wrapper">
     <div class="chat-info-header">
-      当前模型:
-      <strong
-        >{{ settings.activeModel.provider }} /
-        {{ settings.activeModel.modelName }}</strong
-      >
-      | 当前预设: <strong>{{ presets.activePreset.name }}</strong>
+      当前角色:
+      <strong>{{ characterStore.activeCharacter?.name || "无" }}</strong> |
+      当前预设: <strong>{{ presets.activePreset.name }}</strong>
     </div>
 
     <div class="message-list" ref="messageListRef">
@@ -53,10 +50,13 @@
               删除选中的 {{ chat.selectedMessages.size }} 条消息
             </li>
             <li class="separator"></li>
-            <li class="menu-header">选择聊天记录</li>
+            <!-- (关键修改) 菜单头和列表现在只显示当前角色的聊天 -->
+            <li class="menu-header">
+              选择与 {{ characterStore.activeCharacter?.name }} 的聊天
+            </li>
             <div class="chat-history-list">
               <li
-                v-for="chatSession in chat.chats"
+                v-for="chatSession in characterChats"
                 :key="chatSession.id"
                 @click="handleSwitchChat(chatSession.id)"
                 :class="{ active: chatSession.id === chat.activeChatId }"
@@ -87,87 +87,122 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from "vue";
+import { ref, onMounted, nextTick, watch, computed } from "vue";
 import Message from "@/components/Message.vue";
 import api from "@/api";
 import { useChatStore } from "@/stores/chatStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { usePresetsStore } from "@/stores/presetsStore";
 import { useWorldbookStore } from "@/stores/worldbookStore";
+import { useCharacterStore } from "@/stores/characterStore";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
 const presets = usePresetsStore();
 const worldbook = useWorldbookStore();
+const characterStore = useCharacterStore();
 
 const userInput = ref("");
 const isLoading = ref(false);
 const messageListRef = ref(null);
 const isMenuOpen = ref(false);
 
-// (关键修复) 彻底重写 buildFinalMessages 函数，使其健壮且逻辑清晰
+// (关键新增) 计算属性，只筛选出当前激活角色的聊天记录
+const characterChats = computed(() => {
+  if (!characterStore.activeCharacterId) return [];
+  return chat.chats.filter(
+    (c) => c.characterId === characterStore.activeCharacterId
+  );
+});
+
+// (核心) 构建最终上下文的函数
 const buildFinalMessages = () => {
   const finalMessages = [];
   const activePreset = presets.activePreset;
+  const activeCharacter = characterStore.activeCharacter;
   const currentHistory = chat.activeChatHistory;
-  const lastUserMessage =
-    currentHistory.filter((m) => m.role === "user").pop()?.content || "";
 
-  // 1. 注入世界书内容
+  if (!activeCharacter) {
+    console.error("没有激活的角色！");
+    return currentHistory;
+  }
+
+  // 辅助函数，用于替换角色和用户占位符
+  const replacePlaceholders = (text) => {
+    if (typeof text !== "string") return "";
+    // 简单替换，未来可以扩展为更复杂的模板引擎
+    return text
+      .replace(/{{char}}/g, activeCharacter.name)
+      .replace(/{{user}}/g, "User");
+  };
+
+  // --- 上下文注入顺序 ---
+
+  // 1. 注入角色定义
+  if (activeCharacter.description)
+    finalMessages.push({
+      role: "system",
+      content: replacePlaceholders(
+        `[Character Description: ${activeCharacter.description}]`
+      ),
+    });
+  if (activeCharacter.personality)
+    finalMessages.push({
+      role: "system",
+      content: replacePlaceholders(
+        `[Character Personality: ${activeCharacter.personality}]`
+      ),
+    });
+  if (activeCharacter.scenario)
+    finalMessages.push({
+      role: "system",
+      content: replacePlaceholders(`[Scenario: ${activeCharacter.scenario}]`),
+    });
+  if (activeCharacter.mes_example)
+    finalMessages.push({
+      role: "system",
+      content: replacePlaceholders(
+        `[Example Dialogue:\n${activeCharacter.mes_example}]`
+      ),
+    });
+
+  // 2. 注入世界书
+  // a. 全局世界书
   worldbook.entries.forEach((entry) => {
-    if (entry.enabled && entry.content) {
-      // (关键修复) 正确处理数组形式的 keys
-      const keywords = Array.isArray(entry.keys) ? entry.keys : [];
-
-      // 判断是否需要注入：是全局条目，或者最后一个用户消息包含任意一个关键词
-      const shouldInject =
-        entry.isGlobal ||
-        (lastUserMessage &&
-          keywords.some((k) => {
-            try {
-              // 尝试将关键词作为正则表达式进行匹配
-              if (k.startsWith("/") && k.endsWith("/")) {
-                const regex = new RegExp(k.slice(1, -1));
-                return regex.test(lastUserMessage);
-              }
-              // 否则作为普通字符串进行匹配
-              return lastUserMessage.includes(k);
-            } catch (e) {
-              console.warn(`无效的世界书关键词正则表达式: ${k}`, e);
-              return false;
-            }
-          }));
-
-      if (shouldInject) {
-        finalMessages.push({
-          role: "system",
-          content: `[World Info for "${entry.comment || "entry"}": ${
-            entry.content
-          }]`,
-        });
-      }
+    if (entry.enabled && entry.isGlobal && entry.content) {
+      finalMessages.push({
+        role: "system",
+        content: `[World Info: ${entry.content}]`,
+      });
     }
   });
+  // b. 角色专属世界书 (来自角色卡)
+  if (activeCharacter.world_info) {
+    finalMessages.push({
+      role: "system",
+      content: `[Character World Info: ${activeCharacter.world_info}]`,
+    });
+  }
 
-  // 2. 注入预设中的提示词
+  // 3. 注入预设中的提示词
   if (activePreset && activePreset.prompts) {
     activePreset.prompts.forEach((prompt) => {
       if (prompt.enabled && prompt.content) {
         finalMessages.push({
           role: prompt.role || "system",
-          content: prompt.content,
+          content: replacePlaceholders(prompt.content),
         });
       }
     });
   }
 
-  // 3. 添加完整的聊天历史
+  // 4. 注入当前聊天历史
   finalMessages.push(...currentHistory);
 
   return finalMessages;
 };
 
-// (关键修改) 将 sendMessage 分离为两个函数，逻辑更清晰
+// 核心请求逻辑
 const executeApiCall = async () => {
   isLoading.value = true;
 
@@ -175,7 +210,6 @@ const executeApiCall = async () => {
   const config = settings.providerConfig[provider];
   const activeModelName = settings.activeModel.modelName;
 
-  // 在请求 API 之前构建最终消息
   const finalMessages = buildFinalMessages();
 
   try {
@@ -186,7 +220,6 @@ const executeApiCall = async () => {
       temperature: activePreset?.temperature,
       top_p: activePreset?.top_p,
       top_k: activePreset?.top_k,
-      // ...可以添加更多参数
     };
 
     if (provider === "gemini") {
@@ -212,7 +245,6 @@ const executeApiCall = async () => {
         fetchFunc = api.custom.fetchCustomChatCompletion;
         response = await fetchFunc(params, config.apiKey, config.baseURL);
       } else {
-        // OpenAI 和 DeepSeek 共享此逻辑
         fetchFunc =
           api[provider].fetchOpenAIChatCompletion ||
           api[provider].fetchDeepseekChatCompletion;
@@ -233,11 +265,8 @@ const executeApiCall = async () => {
 
 const sendMessage = async () => {
   if (!userInput.value || isLoading.value) return;
-
-  const provider = settings.activeModel.provider;
-  const config = settings.providerConfig[provider];
-  if (!config || !config.apiKey) {
-    alert(`请先在设置页面配置 ${provider.toUpperCase()} 的 API Key!`);
+  if (!characterStore.activeCharacterId) {
+    alert("请先到“角色”页面选择一个聊天对象！");
     return;
   }
 
@@ -247,7 +276,7 @@ const sendMessage = async () => {
   await executeApiCall();
 };
 
-// --- 菜单和生命周期函数 (保持不变) ---
+// --- 菜单和生命周期函数 ---
 const handleRegenerate = () => {
   isMenuOpen.value = false;
   if (isLoading.value) return;
@@ -267,8 +296,6 @@ const handleDeleteSelected = () => {
     ) {
       chat.deleteSelectedMessages();
     }
-  } else {
-    alert("请先勾选需要删除的消息。");
   }
   isMenuOpen.value = false;
 };
@@ -289,12 +316,26 @@ const scrollToBottom = async () => {
   const listEl = messageListRef.value;
   if (listEl) listEl.scrollTop = listEl.scrollHeight;
 };
+
 watch(
   () => chat.activeChatHistory.length,
   () => {
     scrollToBottom();
   }
 );
+
+// (关键修改) 监听当前激活角色的变化
+watch(
+  () => characterStore.activeCharacterId,
+  (newId, oldId) => {
+    if (newId !== oldId) {
+      // 当角色切换时，确保聊天也跟着切换或新建
+      chat.ensureChatExists();
+      isMenuOpen.value = false; // 关闭可能打开的菜单
+    }
+  }
+);
+
 onMounted(() => {
   chat.ensureChatExists();
   scrollToBottom();

@@ -3,8 +3,9 @@
     <header>
       <nav>
         <RouterLink to="/">聊天</RouterLink>
+        <RouterLink to="/characters">角色与世界</RouterLink>
+        <!-- 修改了名称 -->
         <RouterLink to="/presets">预设</RouterLink>
-        <RouterLink to="/worldbook">世界书</RouterLink>
         <RouterLink to="/settings">设置</RouterLink>
       </nav>
     </header>
@@ -19,6 +20,7 @@ import { RouterLink, RouterView } from "vue-router";
 </script>
 
 <style scoped>
+/* 样式保持不变 */
 .app-wrapper {
   display: flex;
   flex-direction: column;
