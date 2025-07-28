@@ -1,8 +1,8 @@
 <template>
   <div class="chat-wrapper">
     <div class="chat-info-header">
-      当前角色:
-      <strong>{{ characterStore.activeCharacter?.name || "无" }}</strong> |
+      <!-- (关键修复) 从 agentStore 中获取激活的智能体名称 -->
+      当前智能体: <strong>{{ agentStore.activeAgent?.name || "无" }}</strong> |
       当前预设: <strong>{{ presets.activePreset.name }}</strong>
     </div>
 
@@ -50,13 +50,12 @@
               删除选中的 {{ chat.selectedMessages.size }} 条消息
             </li>
             <li class="separator"></li>
-            <!-- (关键修改) 菜单头和列表现在只显示当前角色的聊天 -->
             <li class="menu-header">
-              选择与 {{ characterStore.activeCharacter?.name }} 的聊天
+              选择与 {{ agentStore.activeAgent?.name }} 的聊天
             </li>
             <div class="chat-history-list">
               <li
-                v-for="chatSession in characterChats"
+                v-for="chatSession in agentChats"
                 :key="chatSession.id"
                 @click="handleSwitchChat(chatSession.id)"
                 :class="{ active: chatSession.id === chat.activeChatId }"
@@ -93,98 +92,76 @@ import api from "@/api";
 import { useChatStore } from "@/stores/chatStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { usePresetsStore } from "@/stores/presetsStore";
-import { useWorldbookStore } from "@/stores/worldbookStore";
-import { useCharacterStore } from "@/stores/characterStore";
+// (关键修复) 移除对旧 store 的引用，只导入新的 agentStore
+import { useAgentStore } from "@/stores/agentStore";
 
+// --- Store 初始化 ---
 const chat = useChatStore();
 const settings = useSettingsStore();
 const presets = usePresetsStore();
-const worldbook = useWorldbookStore();
-const characterStore = useCharacterStore();
+// (关键修复) 使用 agentStore
+const agentStore = useAgentStore();
 
+// --- 响应式状态 ---
 const userInput = ref("");
 const isLoading = ref(false);
 const messageListRef = ref(null);
 const isMenuOpen = ref(false);
 
-// (关键新增) 计算属性，只筛选出当前激活角色的聊天记录
-const characterChats = computed(() => {
-  if (!characterStore.activeCharacterId) return [];
-  return chat.chats.filter(
-    (c) => c.characterId === characterStore.activeCharacterId
-  );
+// --- 计算属性 ---
+// (关键修复) 从 agentStore 中获取 activeAgentId
+const agentChats = computed(() => {
+  if (!agentStore.activeAgentId) return [];
+  return chat.chats.filter((c) => c.characterId === agentStore.activeAgentId);
 });
 
-// (核心) 构建最终上下文的函数
+// --- (核心) 构建最终上下文的函数 ---
 const buildFinalMessages = () => {
   const finalMessages = [];
   const activePreset = presets.activePreset;
-  const activeCharacter = characterStore.activeCharacter;
+  // (关键修复) 从 agentStore 中获取激活的智能体
+  const activeAgent = agentStore.activeAgent;
   const currentHistory = chat.activeChatHistory;
 
-  if (!activeCharacter) {
-    console.error("没有激活的角色！");
+  if (!activeAgent) {
+    console.error("没有激活的智能体！");
     return currentHistory;
   }
 
-  // 辅助函数，用于替换角色和用户占位符
+  // (关键修复) 从 agentStore 中获取世界书
+  const globalWorldbook = agentStore.globalWorldbookEntries;
+  const localWorldbook = agentStore.getLocalWorldbookEntries(
+    activeAgent.id
+  ).value;
+
   const replacePlaceholders = (text) => {
     if (typeof text !== "string") return "";
-    // 简单替换，未来可以扩展为更复杂的模板引擎
     return text
-      .replace(/{{char}}/g, activeCharacter.name)
+      .replace(/{{char}}/g, activeAgent.name)
       .replace(/{{user}}/g, "User");
   };
 
   // --- 上下文注入顺序 ---
-
-  // 1. 注入角色定义
-  if (activeCharacter.description)
-    finalMessages.push({
-      role: "system",
-      content: replacePlaceholders(
-        `[Character Description: ${activeCharacter.description}]`
-      ),
-    });
-  if (activeCharacter.personality)
-    finalMessages.push({
-      role: "system",
-      content: replacePlaceholders(
-        `[Character Personality: ${activeCharacter.personality}]`
-      ),
-    });
-  if (activeCharacter.scenario)
-    finalMessages.push({
-      role: "system",
-      content: replacePlaceholders(`[Scenario: ${activeCharacter.scenario}]`),
-    });
-  if (activeCharacter.mes_example)
-    finalMessages.push({
-      role: "system",
-      content: replacePlaceholders(
-        `[Example Dialogue:\n${activeCharacter.mes_example}]`
-      ),
-    });
-
-  // 2. 注入世界书
-  // a. 全局世界书
-  worldbook.entries.forEach((entry) => {
-    if (entry.enabled && entry.isGlobal && entry.content) {
+  // (此部分逻辑已更新，以使用 agentStore)
+  // 1. 注入世界书
+  globalWorldbook.forEach((entry) => {
+    if (entry.enabled && entry.content) {
       finalMessages.push({
         role: "system",
         content: `[World Info: ${entry.content}]`,
       });
     }
   });
-  // b. 角色专属世界书 (来自角色卡)
-  if (activeCharacter.world_info) {
-    finalMessages.push({
-      role: "system",
-      content: `[Character World Info: ${activeCharacter.world_info}]`,
-    });
-  }
+  localWorldbook.forEach((entry) => {
+    if (entry.enabled && entry.content) {
+      finalMessages.push({
+        role: "system",
+        content: `[Character World Info: ${entry.content}]`,
+      });
+    }
+  });
 
-  // 3. 注入预设中的提示词
+  // 2. 注入预设中的提示词
   if (activePreset && activePreset.prompts) {
     activePreset.prompts.forEach((prompt) => {
       if (prompt.enabled && prompt.content) {
@@ -196,13 +173,12 @@ const buildFinalMessages = () => {
     });
   }
 
-  // 4. 注入当前聊天历史
+  // 3. 注入当前聊天历史
   finalMessages.push(...currentHistory);
-
   return finalMessages;
 };
 
-// 核心请求逻辑
+// --- 核心请求逻辑 ---
 const executeApiCall = async () => {
   isLoading.value = true;
 
@@ -246,8 +222,8 @@ const executeApiCall = async () => {
         response = await fetchFunc(params, config.apiKey, config.baseURL);
       } else {
         fetchFunc =
-          api[provider].fetchOpenAIChatCompletion ||
-          api[provider].fetchDeepseekChatCompletion;
+          api.openai.fetchOpenAIChatCompletion ||
+          api.deepseek.fetchDeepseekChatCompletion;
         response = await fetchFunc(params, config.apiKey);
       }
       chat.addMessage(response.choices[0].message);
@@ -265,8 +241,8 @@ const executeApiCall = async () => {
 
 const sendMessage = async () => {
   if (!userInput.value || isLoading.value) return;
-  if (!characterStore.activeCharacterId) {
-    alert("请先到“角色”页面选择一个聊天对象！");
+  if (!agentStore.activeAgentId) {
+    alert("请先到“智能体管理”页面选择一个聊天对象！");
     return;
   }
 
@@ -324,14 +300,13 @@ watch(
   }
 );
 
-// (关键修改) 监听当前激活角色的变化
+// (关键修复) 监听 agentStore 中 activeAgentId 的变化
 watch(
-  () => characterStore.activeCharacterId,
+  () => agentStore.activeAgentId,
   (newId, oldId) => {
     if (newId !== oldId) {
-      // 当角色切换时，确保聊天也跟着切换或新建
       chat.ensureChatExists();
-      isMenuOpen.value = false; // 关闭可能打开的菜单
+      isMenuOpen.value = false;
     }
   }
 );

@@ -1,22 +1,34 @@
 <template>
   <div class="page-layout">
+    <!-- 左侧边栏：智能体列表和管理 -->
     <aside class="sidebar">
-      <h3>角色列表</h3>
+      <h3>智能体列表</h3>
       <ul>
         <li
-          v-for="char in characterStore.characterList"
-          :key="char.id"
-          :class="{ active: characterStore.activeCharacterId === char.id }"
-          @click="characterStore.activeCharacterId = char.id"
+          v-for="agent in store.agentList"
+          :key="agent.id"
+          :class="{ active: store.activeAgentId === agent.id }"
+          @click="handleAgentSwitch(agent.id)"
         >
-          {{ char.name }}
-          <button @click.stop="handleDelete(char.id)" class="delete-btn">
+          <input
+            v-if="editingAgentId === agent.id"
+            v-model="editingAgentName"
+            @blur="saveAgentName(agent)"
+            @keyup.enter="saveAgentName(agent)"
+            class="char-name-input"
+            ref="agentNameInputRef"
+          />
+          <span v-else @dblclick="startEditingAgentName(agent)">{{
+            agent.name
+          }}</span>
+
+          <button @click.stop="handleDelete(agent.id)" class="delete-btn">
             ×
           </button>
         </li>
       </ul>
       <div class="sidebar-actions">
-        <button @click="characterStore.addNewCharacter">新建角色</button>
+        <button @click="store.addNewAgent">新建智能体</button>
         <button @click="triggerImport">导入角色卡 (.json/.png)</button>
         <input
           type="file"
@@ -28,71 +40,24 @@
       </div>
     </aside>
 
-    <main class="editor-content" v-if="activeCharacter">
-      <!-- 区域一：角色属性编辑器 -->
-      <section class="editor-section">
-        <div class="editor-header">
-          <input
-            type="text"
-            v-model="activeCharacter.name"
-            class="preset-name-input"
-          />
-        </div>
-        <div class="param-grid">
-          <div class="form-group span-2">
-            <label for="description">角色描述 (Description)</label>
-            <textarea
-              id="description"
-              v-model="activeCharacter.description"
-            ></textarea>
-          </div>
-          <div class="form-group span-2">
-            <label for="personality">性格 (Personality)</label>
-            <textarea
-              id="personality"
-              v-model="activeCharacter.personality"
-            ></textarea>
-          </div>
-          <div class="form-group">
-            <label for="scenario">场景 (Scenario)</label>
-            <textarea
-              id="scenario"
-              v-model="activeCharacter.scenario"
-            ></textarea>
-          </div>
-          <div class="form-group">
-            <label for="first_mes">问候语 (First Message)</label>
-            <textarea
-              id="first_mes"
-              v-model="activeCharacter.first_mes"
-            ></textarea>
-          </div>
-          <div class="form-group span-2">
-            <label for="mes_example">对话示例 (Message Example)</label>
-            <textarea
-              id="mes_example"
-              v-model="activeCharacter.mes_example"
-            ></textarea>
-          </div>
-        </div>
-      </section>
-
-      <!-- 区域二：世界书编辑器 -->
+    <!-- 右侧主内容区：世界书管理器 -->
+    <main class="editor-content" v-if="activeAgent">
       <section class="editor-section">
         <div class="tabs">
           <button
             :class="{ active: activeTab === 'local' }"
             @click="activeTab = 'local'"
           >
-            角色世界书 ({{ localEntries.length }})
+            {{ activeAgent.name }} 的世界书 ({{ localWorldbookEntries.length }})
           </button>
           <button
             :class="{ active: activeTab === 'global' }"
             @click="activeTab = 'global'"
           >
-            全局世界书 ({{ worldbookStore.globalEntries.length }})
+            全局世界书 ({{ store.globalWorldbookEntries.length }})
           </button>
         </div>
+
         <div class="table-container">
           <div class="prompts-table-wrapper">
             <table>
@@ -105,7 +70,7 @@
                   <th>操作</th>
                 </tr>
               </thead>
-              <tbody @drop="handleDrop" @dragover.prevent @dragenter.prevent>
+              <tbody @drop="handleDrop" @dragover.prevent>
                 <tr
                   v-for="entry in activeEntries"
                   :key="entry.uid"
@@ -142,7 +107,7 @@
                   </td>
                   <td>
                     <button
-                      @click="worldbookStore.deleteEntry(entry.uid)"
+                      @click="store.deleteWorldbookEntry(entry.uid)"
                       class="delete-btn-small"
                     >
                       删除
@@ -158,61 +123,100 @@
         </div>
       </section>
     </main>
+
+    <!-- 如果没有选中任何智能体，显示占位提示 -->
+    <div v-else class="editor-content-placeholder">
+      <p>请在左侧选择或创建一个智能体。</p>
+    </div>
   </div>
+  <!-- (关键修复) 补全了这个缺失的闭合标签 -->
 </template>
 
 <script setup>
-import { ref, computed } from "vue";
-import { useCharacterStore } from "@/stores/characterStore";
-import { useWorldbookStore } from "@/stores/worldbookStore";
+import { ref, computed, nextTick } from "vue";
+import { useAgentStore } from "@/stores/agentStore";
 import extract from "png-chunks-extract";
 
-const characterStore = useCharacterStore();
-const worldbookStore = useWorldbookStore();
+// --- Store 初始化 ---
+const store = useAgentStore();
+
+// --- 响应式状态 ---
 const fileInput = ref(null);
-const activeTab = ref("local");
+const activeTab = ref("local"); // 'local' 或 'global'
 const draggedEntry = ref(null);
 const dragOverEntry = ref(null);
+const editingAgentId = ref(null);
+const editingAgentName = ref("");
+const agentNameInputRef = ref(null);
 
-const activeCharacter = computed(() => characterStore.activeCharacter);
+// --- 计算属性 ---
+const activeAgent = computed(() => store.activeAgent);
 
-const localEntries = computed(() => {
-  if (!activeCharacter.value) return [];
-  return worldbookStore.getEntriesForCharacter(activeCharacter.value.id);
-});
-const activeEntries = computed(() => {
-  return activeTab.value === "local"
-    ? localEntries.value
-    : worldbookStore.globalEntries;
-});
+// 根据激活的智能体，获取其专属的世界书条目
+const localWorldbookEntries = computed(() =>
+  activeAgent.value
+    ? store.getLocalWorldbookEntries(activeAgent.value.id).value
+    : []
+);
 
-const addActiveEntry = () => {
-  const charId = activeTab.value === "local" ? activeCharacter.value.id : null;
-  worldbookStore.addEntry(charId);
+// 根据当前激活的标签页，决定表格显示哪个列表
+const activeEntries = computed(() =>
+  activeTab.value === "local"
+    ? localWorldbookEntries.value
+    : store.globalWorldbookEntries
+);
+
+// --- 方法 ---
+
+// 切换智能体
+const handleAgentSwitch = (id) => {
+  editingAgentId.value = null; // 切换时总是退出编辑模式
+  store.activeAgentId = id;
 };
 
+// 开始编辑智能体名称
+const startEditingAgentName = (agent) => {
+  editingAgentId.value = agent.id;
+  editingAgentName.value = agent.name;
+  nextTick(() => {
+    agentNameInputRef.value?.focus();
+  });
+};
+
+// 保存智能体名称
+const saveAgentName = (agent) => {
+  if (editingAgentName.value.trim()) {
+    agent.name = editingAgentName.value.trim();
+  }
+  editingAgentId.value = null; // 退出编辑模式
+};
+
+// 添加新的世界书条目
+const addActiveEntry = () => {
+  const agentId = activeTab.value === "local" ? activeAgent.value.id : null;
+  store.addWorldbookEntry(agentId);
+};
+
+// 删除智能体（联动删除世界书）
 const handleDelete = (id) => {
-  if (
-    confirm(
-      `确认删除角色 "${
-        characterStore.characterList.find((c) => c.id === id).name
-      }"? 这也会删除其专属的世界书条目。`
-    )
-  ) {
-    characterStore.deleteCharacter(id);
+  if (confirm(`确认删除该智能体? 这也会删除其专属的世界书条目。`)) {
+    store.deleteAgent(id);
   }
 };
+
+// 触发文件选择框
 const triggerImport = () => {
   fileInput.value.click();
 };
 
+// 处理文件上传
 const handleFileUpload = (event) => {
   const file = event.target.files[0];
   if (!file) return;
 
   if (file.type === "application/json" || file.name.endsWith(".json")) {
     const reader = new FileReader();
-    reader.onload = (e) => characterStore.importCharacterCard(e.target.result);
+    reader.onload = (e) => store.importCharacterCard(e.target.result);
     reader.readAsText(file);
   } else if (file.type === "image/png") {
     const reader = new FileReader();
@@ -233,7 +237,7 @@ const handleFileUpload = (event) => {
             bytes[i] = binaryString.charCodeAt(i);
           }
           const finalJsonString = new TextDecoder("utf-8").decode(bytes);
-          characterStore.importCharacterCard(finalJsonString);
+          store.importCharacterCard(finalJsonString);
         } else {
           alert("图片中未找到有效的 SillyTavern 角色数据！");
         }
@@ -254,7 +258,6 @@ const handleFileUpload = (event) => {
 const handleDragStart = (event, entry) => {
   draggedEntry.value = entry;
   event.dataTransfer.effectAllowed = "move";
-  event.dataTransfer.setData("application/json", JSON.stringify(entry));
 };
 
 const handleDragOver = (event, entry) => {
@@ -278,17 +281,16 @@ const handleDrop = (event) => {
   const targetUid = dragOverEntry.value.uid;
   if (draggedEntry.value.uid === targetUid) return;
 
-  const allEntries = [...worldbookStore.entries];
+  const allEntries = [...store.worldbookEntries];
   const draggedIndex = allEntries.findIndex(
     (e) => e.uid === draggedEntry.value.uid
   );
   let targetIndex = allEntries.findIndex((e) => e.uid === targetUid);
 
   if (draggedIndex > -1 && targetIndex > -1) {
-    // 经典数组排序算法
     const [item] = allEntries.splice(draggedIndex, 1);
     allEntries.splice(targetIndex, 0, item);
-    worldbookStore.updateEntriesOrder(allEntries);
+    store.updateWorldbookOrder(allEntries);
   }
 
   handleDragEnd();
@@ -340,6 +342,17 @@ const handleDragEnd = () => {
   background-color: #007bff;
   color: white;
 }
+.sidebar li span {
+  flex-grow: 1;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.char-name-input {
+  width: 100%;
+  box-sizing: border-box;
+}
 .sidebar-actions {
   display: flex;
   flex-direction: column;
@@ -356,46 +369,17 @@ const handleDragEnd = () => {
   overflow-y: auto;
   background: #fff;
 }
+.editor-content-placeholder {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  color: #888;
+  font-size: 1.2rem;
+  flex-grow: 1;
+}
 .editor-section {
   margin-bottom: 3rem;
-}
-.editor-header {
-  margin-bottom: 2rem;
-}
-.preset-name-input {
-  font-size: 1.8rem;
-  font-weight: bold;
-  border: none;
-  border-bottom: 2px solid #ccc;
-  width: 100%;
-  padding: 0.5rem 0;
-}
-.param-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-}
-.form-group {
-  display: flex;
-  flex-direction: column;
-}
-.form-group.span-2 {
-  grid-column: span 2;
-}
-.form-group label {
-  margin-bottom: 0.5rem;
-  font-weight: bold;
-  color: #555;
-}
-.form-group textarea {
-  width: 100%;
-  min-height: 120px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  padding: 0.75rem;
-  font-size: 1rem;
-  resize: vertical;
-  box-sizing: border-box;
 }
 .delete-btn {
   background: none;

@@ -3,8 +3,7 @@
     <header>
       <nav>
         <RouterLink to="/">聊天</RouterLink>
-        <RouterLink to="/characters">角色与世界</RouterLink>
-        <!-- 修改了名称 -->
+        <RouterLink to="/agents">智能体管理</RouterLink>
         <RouterLink to="/presets">预设</RouterLink>
         <RouterLink to="/settings">设置</RouterLink>
       </nav>
@@ -14,7 +13,6 @@
     </main>
   </div>
 </template>
-
 <script setup>
 import { RouterLink, RouterView } from "vue-router";
 </script>
