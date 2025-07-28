@@ -38,7 +38,6 @@ Gchat/
 │   ├── package.json          # 后端依赖和配置
 │   └── server.js             # 后端 Express 服务器核心文件
 ├── node_modules/
-├── public/                   # Vite 公共资源目录
 ├── src/                      # 前端核心源码目录
 │   ├── api/                  # API 请求封装目录
 │   │   ├── services/         # 各个 API 提供商的具体实现
@@ -54,12 +53,12 @@ Gchat/
 │   ├── router/
 │   │   └── index.js          # Vue Router 路由配置
 │   ├── stores/               # Pinia 状态管理目录
-│   │   ├── characterStore.js # 角色数据中心
+│   │   ├── agentStore.js     # 智能体数据中心
 │   │   ├── chatStore.js      # 聊天数据中心
+│   │   ├── index.js          #
 │   │   ├── presetsStore.js   # 预设数据中心
-│   │   └── worldbookStore.js # 世界书数据中心
 │   ├── views/                # 页面级组件
-│   │   ├── CharacterView.vue # 角色与世界管理页面
+│   │   ├── AgentManagerView.vue # 智能体管理页面
 │   │   ├── ChatView.vue      # 聊天主页面
 │   │   ├── PresetsView.vue   # 预设管理页面
 │   │   └── SettingsView.vue  # API 设置页面
@@ -141,13 +140,8 @@ Gchat/
 
 #### `characterStore.js`
 
-- **作用**: **角色 (智能体) 数据管理中心**。
-- **功能**: 存储 `characterList` (所有角色的列表) 和 `activeCharacterId` (当前选中的角色)。提供了新建、删除、切换角色以及**从 SillyTavern 角色卡 (`.json` 或 `.png`) 导入角色**的强大功能，并能联动 `worldbookStore`。
-
-#### `worldbookStore.js`
-
-- **作用**: **世界书数据管理中心**。
-- **功能**: 存储 `entries` (所有世界书条目的列表)。它最核心的功能是能够为每个条目附加一个 `characterId`，从而实现了**全局世界书** (characterId 为 null) 和**角色专属世界书**的区分。同时提供了强大的导入功能，能兼容多种 JSON 格式。
+- **作用**: **智能体数据管理中心**。
+- **功能**: 存储 `characterList` (所有角色的列表) 和 `activeCharacterId` (当前选中的角色)。提供了新建、删除、切换角色以及**从 SillyTavern 角色卡 (`.json` 或 `.png`) 导入角色**的强大功能。
 
 #### `presetsStore.js`
 
@@ -168,9 +162,9 @@ Gchat/
 - **作用**: **单条聊天消息组件**。
 - **功能**: 负责渲染一条消息的所有视觉元素，包括楼层号、头像、消息气泡、Markdown 内容解析、编辑功能（铅笔图标和输入框）、重新生成按钮，以及按需显示的复选框。它也是实现用户消息居右、AI 消息居左的关键。
 
-#### `views/CharacterView.vue`
+#### `views/AgentManagerView.vue`
 
-- **作用**: **统一的“角色与世界”管理页面**。
+- **作用**: **统一的“智能体”管理页面**。
 - **功能**: 这是项目中最复杂、最强大的管理界面。它集成了角色列表管理（新建、导入、删除、重命名）和世界书管理（标签页切换、表格编辑、拖拽排序），是您创建和定义 AI 灵魂的核心场所。
 
 #### `views/PresetsView.vue`
