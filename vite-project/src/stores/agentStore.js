@@ -1,15 +1,16 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 
+// (关键修改) 简化角色对象，只保留核心信息
 const defaultAgent = {
   id: null,
   name: "新角色",
-  first_mes: "",
+  first_mes: "", // 只保留问候语
 };
 
-const defaultWorldbookEntry = {
+const defaultLorebookEntry = {
   uid: null,
-  characterId: null,
+  characterId: null, // null 表示全局
   keys: [],
   comment: "新的注释",
   content: "关于关键词的描述...",
@@ -19,6 +20,7 @@ const defaultWorldbookEntry = {
 export const useAgentStore = defineStore(
   "agent",
   () => {
+    // --- State ---
     const agentList = ref([
       {
         ...JSON.parse(JSON.stringify(defaultAgent)),
@@ -30,22 +32,23 @@ export const useAgentStore = defineStore(
     const activeAgentId = ref(
       agentList.value.length > 0 ? agentList.value[0].id : null
     );
-    const worldbookEntries = ref([]);
+    const lorebookEntries = ref([]);
 
+    // --- Getters ---
     const activeAgent = computed(() =>
       agentList.value.find((c) => c.id === activeAgentId.value)
     );
-    const globalWorldbookEntries = computed(() =>
-      worldbookEntries.value.filter((e) => !e.characterId)
+    const globalLorebookEntries = computed(() =>
+      lorebookEntries.value.filter((e) => !e.characterId)
     );
-    const getLocalWorldbookEntries = (agentId) => {
-      return computed(() =>
-        worldbookEntries.value.filter((e) => e.characterId === agentId)
-      );
+    const getLorebookEntriesForAgent = (agentId) => {
+      return lorebookEntries.value.filter((e) => e.characterId === agentId);
     };
 
+    // --- Private Helpers ---
     const generateUID = () => Date.now() + Math.random();
 
+    // --- Actions ---
     function addNewAgent() {
       const newAgent = {
         ...JSON.parse(JSON.stringify(defaultAgent)),
@@ -62,7 +65,7 @@ export const useAgentStore = defineStore(
       }
       const index = agentList.value.findIndex((c) => c.id === agentId);
       if (index > -1) {
-        worldbookEntries.value = worldbookEntries.value.filter(
+        lorebookEntries.value = lorebookEntries.value.filter(
           (e) => e.characterId !== agentId
         );
         agentList.value.splice(index, 1);
@@ -72,82 +75,45 @@ export const useAgentStore = defineStore(
       }
     }
 
-    function addWorldbookEntry(agentId = null) {
-      const newEntry = {
-        ...JSON.parse(JSON.stringify(defaultWorldbookEntry)),
-        uid: generateUID(),
-        characterId: agentId,
-      };
-      worldbookEntries.value.push(newEntry);
-    }
-
-    function deleteWorldbookEntry(uid) {
-      const index = worldbookEntries.value.findIndex((e) => e.uid === uid);
-      if (index > -1) worldbookEntries.value.splice(index, 1);
-    }
-
-    function updateWorldbookOrder(newOrder) {
-      worldbookEntries.value = newOrder;
-    }
-
-    // 最终的、健壮的导入函数
+    // (关键修复) 这是一个全新的、健壮的、遵循您提出流程的导入函数
     function importCharacterCard(jsonData) {
       try {
         const data = JSON.parse(jsonData);
-        const spec = data.spec === "chara_card_v2" ? data.data : data;
-        const worldInfoString = spec.world_info || spec.wi || "";
+        // 兼容 v2 和 v3+ 格式，获取核心数据对象
+        const specData = data.data || data;
 
         const newAgent = {
           id: crypto.randomUUID(),
-          name: spec.name || "导入的角色",
-          first_mes: spec.first_mes || "",
+          name: specData.name || "导入的角色",
+          first_mes: specData.first_mes || "",
         };
 
-        let parsedWorldInfoEntries = [];
-        if (worldInfoString && typeof worldInfoString === "string") {
-          try {
-            // 方案 A: 尝试作为标准 JSON 数组解析
-            const parsedData = JSON.parse(worldInfoString);
-            if (Array.isArray(parsedData)) {
-              parsedWorldInfoEntries = parsedData;
-            } else {
-              throw new Error("世界书数据不是一个数组。");
+        agentList.value.unshift(newAgent);
+        activeAgentId.value = newAgent.id;
+
+        // (核心逻辑) 检查并解析内嵌的 character_book
+        if (
+          specData.character_book &&
+          Array.isArray(specData.character_book.entries)
+        ) {
+          const importedEntries = specData.character_book.entries.map(
+            (entry) => {
+              return {
+                uid: entry.id ?? generateUID(), // 使用卡片中的 id 或生成新的
+                characterId: newAgent.id, // 关键：将条目与新角色 ID 绑定
+                keys: entry.keys ?? [],
+                comment: entry.comment ?? "",
+                content: entry.content ?? "",
+                enabled: entry.enabled ?? true,
+              };
             }
-          } catch (e) {
-            // 方案 B: 如果方案 A 失败，则尝试作为 JSON-Lines 格式处理
-            try {
-              parsedWorldInfoEntries = worldInfoString
-                .split("\n")
-                .filter(
-                  (line) =>
-                    line.trim().startsWith("{") && line.trim().endsWith("}")
-                )
-                .map((line) => JSON.parse(line));
-            } catch (e2) {
-              console.error("两种方案都无法解析角色卡内嵌的世界书。", e2);
-              alert(
-                `角色 "${newAgent.name}" 导入成功，但其内嵌的世界书解析失败。`
-              );
-            }
+          );
+
+          if (importedEntries.length > 0) {
+            lorebookEntries.value.push(...importedEntries);
           }
         }
 
-        const finalEntries = parsedWorldInfoEntries.map((entry) => ({
-          ...defaultWorldbookEntry,
-          uid: generateUID(),
-          characterId: newAgent.id,
-          keys: entry.keys ?? [],
-          comment: entry.comment ?? "",
-          content: entry.content ?? "",
-          enabled: entry.enabled ?? true,
-        }));
-
-        agentList.value.unshift(newAgent);
-        if (finalEntries.length > 0) {
-          worldbookEntries.value.push(...finalEntries);
-        }
-
-        activeAgentId.value = newAgent.id;
         alert(`角色 "${newAgent.name}" 导入成功！`);
       } catch (error) {
         alert(`导入角色卡失败: ${error.message}`);
@@ -155,19 +121,37 @@ export const useAgentStore = defineStore(
       }
     }
 
+    function addLorebookEntry(agentId = null) {
+      const newEntry = {
+        ...JSON.parse(JSON.stringify(defaultLorebookEntry)),
+        uid: generateUID(),
+        characterId: agentId,
+      };
+      lorebookEntries.value.push(newEntry);
+    }
+
+    function deleteLorebookEntry(uid) {
+      const index = lorebookEntries.value.findIndex((e) => e.uid === uid);
+      if (index > -1) lorebookEntries.value.splice(index, 1);
+    }
+
+    function updateLorebookEntriesOrder(newOrder) {
+      lorebookEntries.value = newOrder;
+    }
+
     return {
       agentList,
       activeAgentId,
-      worldbookEntries,
+      lorebookEntries,
       activeAgent,
-      globalWorldbookEntries,
-      getLocalWorldbookEntries,
+      globalLorebookEntries,
+      getLorebookEntriesForAgent,
       addNewAgent,
       deleteAgent,
-      addWorldbookEntry,
-      deleteWorldbookEntry,
-      updateWorldbookOrder,
       importCharacterCard,
+      addLorebookEntry,
+      deleteLorebookEntry,
+      updateLorebookEntriesOrder,
     };
   },
   {

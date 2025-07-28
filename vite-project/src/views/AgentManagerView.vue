@@ -1,6 +1,6 @@
 <template>
   <div class="page-layout">
-    <!-- 左侧边栏：智能体列表和管理 -->
+    <!-- 左侧边栏：角色/智能体列表和管理 -->
     <aside class="sidebar">
       <h3>智能体列表</h3>
       <ul>
@@ -40,7 +40,7 @@
       </div>
     </aside>
 
-    <!-- 右侧主内容区：世界书管理器 -->
+    <!-- 右侧主内容区：世界书/知识库编辑器 -->
     <main class="editor-content" v-if="activeAgent">
       <section class="editor-section">
         <div class="tabs">
@@ -48,13 +48,13 @@
             :class="{ active: activeTab === 'local' }"
             @click="activeTab = 'local'"
           >
-            {{ activeAgent.name }} 的世界书 ({{ localWorldbookEntries.length }})
+            角色知识库 ({{ localLorebookEntries.length }})
           </button>
           <button
             :class="{ active: activeTab === 'global' }"
             @click="activeTab = 'global'"
           >
-            全局世界书 ({{ store.globalWorldbookEntries.length }})
+            全局知识库 ({{ store.globalLorebookEntries.length }})
           </button>
         </div>
 
@@ -107,7 +107,7 @@
                   </td>
                   <td>
                     <button
-                      @click="store.deleteWorldbookEntry(entry.uid)"
+                      @click="store.deleteLorebookEntry(entry.uid)"
                       class="delete-btn-small"
                     >
                       删除
@@ -118,18 +118,29 @@
             </table>
           </div>
           <button @click="addActiveEntry" class="add-entry-btn">
-            {{ activeTab === "local" ? "添加角色条目" : "添加全局条目" }}
+            {{ activeTab === "local" ? "添加角色知识" : "添加全局知识" }}
           </button>
         </div>
       </section>
     </main>
 
-    <!-- 如果没有选中任何智能体，显示占位提示 -->
     <div v-else class="editor-content-placeholder">
       <p>请在左侧选择或创建一个智能体。</p>
     </div>
+
+    <!-- 导入预览模态框 (保持不变) -->
+    <div v-if="isModalVisible" class="modal-overlay" @click.self="cancelImport">
+      <div class="modal-content">
+        <h3>角色卡数据预览</h3>
+        <p>请确认以下 JSON 数据是否正确，确认后将创建新角色。</p>
+        <pre class="json-preview">{{ formattedCardData }}</pre>
+        <div class="modal-actions">
+          <button @click="cancelImport" class="btn-secondary">取消</button>
+          <button @click="confirmImport" class="btn-primary">确认导入</button>
+        </div>
+      </div>
+    </div>
   </div>
-  <!-- (关键修复) 补全了这个缺失的闭合标签 -->
 </template>
 
 <script setup>
@@ -137,44 +148,41 @@ import { ref, computed, nextTick } from "vue";
 import { useAgentStore } from "@/stores/agentStore";
 import extract from "png-chunks-extract";
 
-// --- Store 初始化 ---
 const store = useAgentStore();
-
-// --- 响应式状态 ---
 const fileInput = ref(null);
-const activeTab = ref("local"); // 'local' 或 'global'
+const activeTab = ref("local");
 const draggedEntry = ref(null);
 const dragOverEntry = ref(null);
 const editingAgentId = ref(null);
 const editingAgentName = ref("");
 const agentNameInputRef = ref(null);
+const isModalVisible = ref(false);
+const parsedCardData = ref("");
 
-// --- 计算属性 ---
 const activeAgent = computed(() => store.activeAgent);
-
-// 根据激活的智能体，获取其专属的世界书条目
-const localWorldbookEntries = computed(() =>
+const localLorebookEntries = computed(() =>
   activeAgent.value
-    ? store.getLocalWorldbookEntries(activeAgent.value.id).value
+    ? store.getLorebookEntriesForAgent(activeAgent.value.id)
     : []
 );
-
-// 根据当前激活的标签页，决定表格显示哪个列表
 const activeEntries = computed(() =>
   activeTab.value === "local"
-    ? localWorldbookEntries.value
-    : store.globalWorldbookEntries
+    ? localLorebookEntries.value
+    : store.globalLorebookEntries
 );
+const formattedCardData = computed(() => {
+  try {
+    return JSON.stringify(JSON.parse(parsedCardData.value), null, 2);
+  } catch {
+    return "无效的 JSON 数据";
+  }
+});
 
-// --- 方法 ---
-
-// 切换智能体
 const handleAgentSwitch = (id) => {
-  editingAgentId.value = null; // 切换时总是退出编辑模式
+  editingAgentId.value = null;
   store.activeAgentId = id;
 };
 
-// 开始编辑智能体名称
 const startEditingAgentName = (agent) => {
   editingAgentId.value = agent.id;
   editingAgentName.value = agent.name;
@@ -183,40 +191,40 @@ const startEditingAgentName = (agent) => {
   });
 };
 
-// 保存智能体名称
 const saveAgentName = (agent) => {
   if (editingAgentName.value.trim()) {
     agent.name = editingAgentName.value.trim();
   }
-  editingAgentId.value = null; // 退出编辑模式
+  editingAgentId.value = null;
 };
 
-// 添加新的世界书条目
 const addActiveEntry = () => {
   const agentId = activeTab.value === "local" ? activeAgent.value.id : null;
-  store.addWorldbookEntry(agentId);
+  store.addLorebookEntry(agentId);
 };
 
-// 删除智能体（联动删除世界书）
 const handleDelete = (id) => {
-  if (confirm(`确认删除该智能体? 这也会删除其专属的世界书条目。`)) {
+  if (confirm(`确认删除智能体? 这也会删除其专属的知识库条目。`)) {
     store.deleteAgent(id);
   }
 };
 
-// 触发文件选择框
 const triggerImport = () => {
   fileInput.value.click();
 };
 
-// 处理文件上传
 const handleFileUpload = (event) => {
   const file = event.target.files[0];
   if (!file) return;
 
+  const processJsonString = (jsonString) => {
+    parsedCardData.value = jsonString;
+    isModalVisible.value = true;
+  };
+
   if (file.type === "application/json" || file.name.endsWith(".json")) {
     const reader = new FileReader();
-    reader.onload = (e) => store.importCharacterCard(e.target.result);
+    reader.onload = (e) => processJsonString(e.target.result);
     reader.readAsText(file);
   } else if (file.type === "image/png") {
     const reader = new FileReader();
@@ -237,7 +245,7 @@ const handleFileUpload = (event) => {
             bytes[i] = binaryString.charCodeAt(i);
           }
           const finalJsonString = new TextDecoder("utf-8").decode(bytes);
-          store.importCharacterCard(finalJsonString);
+          processJsonString(finalJsonString);
         } else {
           alert("图片中未找到有效的 SillyTavern 角色数据！");
         }
@@ -254,48 +262,51 @@ const handleFileUpload = (event) => {
   event.target.value = "";
 };
 
+const confirmImport = () => {
+  store.importCharacterCard(parsedCardData.value);
+  isModalVisible.value = false;
+  parsedCardData.value = "";
+};
+
+const cancelImport = () => {
+  isModalVisible.value = false;
+  parsedCardData.value = "";
+};
+
 // --- 拖拽排序逻辑 ---
 const handleDragStart = (event, entry) => {
   draggedEntry.value = entry;
   event.dataTransfer.effectAllowed = "move";
 };
-
 const handleDragOver = (event, entry) => {
   event.preventDefault();
   if (entry.uid !== draggedEntry.value?.uid) {
     dragOverEntry.value = entry;
   }
 };
-
 const handleDragLeave = () => {
   dragOverEntry.value = null;
 };
-
 const handleDrop = (event) => {
   event.preventDefault();
   if (!draggedEntry.value || !dragOverEntry.value) {
     handleDragEnd();
     return;
   }
-
   const targetUid = dragOverEntry.value.uid;
   if (draggedEntry.value.uid === targetUid) return;
-
-  const allEntries = [...store.worldbookEntries];
+  const allEntries = [...store.lorebookEntries];
   const draggedIndex = allEntries.findIndex(
     (e) => e.uid === draggedEntry.value.uid
   );
   let targetIndex = allEntries.findIndex((e) => e.uid === targetUid);
-
   if (draggedIndex > -1 && targetIndex > -1) {
     const [item] = allEntries.splice(draggedIndex, 1);
     allEntries.splice(targetIndex, 0, item);
-    store.updateWorldbookOrder(allEntries);
+    store.updateLorebookEntriesOrder(allEntries);
   }
-
   handleDragEnd();
 };
-
 const handleDragEnd = () => {
   draggedEntry.value = null;
   dragOverEntry.value = null;
@@ -303,6 +314,52 @@ const handleDragEnd = () => {
 </script>
 
 <style scoped>
+/* 样式保持不变 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  width: 80%;
+  max-width: 800px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.json-preview {
+  background-color: #f4f4f4;
+  border: 1px solid #ccc;
+  padding: 1rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  flex-grow: 1;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
 .page-layout {
   display: flex;
   height: 100%;
@@ -393,7 +450,6 @@ li:hover .delete-btn,
 li.active .delete-btn {
   display: block;
 }
-
 .tabs {
   display: flex;
   border-bottom: 2px solid #dee2e6;
