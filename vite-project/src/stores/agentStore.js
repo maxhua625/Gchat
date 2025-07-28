@@ -1,17 +1,15 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 
-// 默认的智能体（角色）结构
 const defaultAgent = {
   id: null,
   name: "新角色",
-  first_mes: "", // 问候语
+  first_mes: "",
 };
 
-// 默认的世界书条目结构
 const defaultWorldbookEntry = {
   uid: null,
-  characterId: null, // null 表示全局
+  characterId: null,
   keys: [],
   comment: "新的注释",
   content: "关于关键词的描述...",
@@ -21,7 +19,6 @@ const defaultWorldbookEntry = {
 export const useAgentStore = defineStore(
   "agent",
   () => {
-    // --- State ---
     const agentList = ref([
       {
         ...JSON.parse(JSON.stringify(defaultAgent)),
@@ -33,9 +30,8 @@ export const useAgentStore = defineStore(
     const activeAgentId = ref(
       agentList.value.length > 0 ? agentList.value[0].id : null
     );
-    const worldbookEntries = ref([]); // 存储所有的世界书条目
+    const worldbookEntries = ref([]);
 
-    // --- Getters ---
     const activeAgent = computed(() =>
       agentList.value.find((c) => c.id === activeAgentId.value)
     );
@@ -48,7 +44,6 @@ export const useAgentStore = defineStore(
       );
     };
 
-    // --- Methods ---
     const generateUID = () => Date.now() + Math.random();
 
     function addNewAgent() {
@@ -67,7 +62,6 @@ export const useAgentStore = defineStore(
       }
       const index = agentList.value.findIndex((c) => c.id === agentId);
       if (index > -1) {
-        // 联动删除该角色的世界书条目
         worldbookEntries.value = worldbookEntries.value.filter(
           (e) => e.characterId !== agentId
         );
@@ -96,7 +90,7 @@ export const useAgentStore = defineStore(
       worldbookEntries.value = newOrder;
     }
 
-    // (关键修复) 强大的、负责所有解析工作的导入函数
+    // 最终的、健壮的导入函数
     function importCharacterCard(jsonData) {
       try {
         const data = JSON.parse(jsonData);
@@ -109,43 +103,51 @@ export const useAgentStore = defineStore(
           first_mes: spec.first_mes || "",
         };
 
-        // 1. (核心逻辑) 在这里解析 world_info
         let parsedWorldInfoEntries = [];
         if (worldInfoString && typeof worldInfoString === "string") {
           try {
-            // 尝试将 SillyTavern 的 JSON-Lines 格式 (每行一个json) 转换为一个有效的 JS 对象数组
-            parsedWorldInfoEntries = worldInfoString
-              .split("\n")
-              .filter((line) => line.trim()) // 过滤掉空行
-              .map((line) => {
-                const entry = JSON.parse(line);
-                return {
-                  ...defaultWorldbookEntry, // 确保所有字段都存在
-                  uid: generateUID(),
-                  characterId: newAgent.id, // (关键) 绑定到新创建的角色
-                  keys: entry.keys ?? [],
-                  comment: entry.comment ?? "",
-                  content: entry.content ?? "",
-                  enabled: entry.enabled ?? true,
-                };
-              });
+            // 方案 A: 尝试作为标准 JSON 数组解析
+            const parsedData = JSON.parse(worldInfoString);
+            if (Array.isArray(parsedData)) {
+              parsedWorldInfoEntries = parsedData;
+            } else {
+              throw new Error("世界书数据不是一个数组。");
+            }
           } catch (e) {
-            console.warn("解析角色卡内嵌的世界书失败，可能格式不兼容。", e);
-            alert(
-              `角色 "${newAgent.name}" 导入成功，但其内嵌的世界书解析失败。`
-            );
+            // 方案 B: 如果方案 A 失败，则尝试作为 JSON-Lines 格式处理
+            try {
+              parsedWorldInfoEntries = worldInfoString
+                .split("\n")
+                .filter(
+                  (line) =>
+                    line.trim().startsWith("{") && line.trim().endsWith("}")
+                )
+                .map((line) => JSON.parse(line));
+            } catch (e2) {
+              console.error("两种方案都无法解析角色卡内嵌的世界书。", e2);
+              alert(
+                `角色 "${newAgent.name}" 导入成功，但其内嵌的世界书解析失败。`
+              );
+            }
           }
         }
 
-        // 2. 将新角色和解析出的世界书条目，一起添加到状态中
+        const finalEntries = parsedWorldInfoEntries.map((entry) => ({
+          ...defaultWorldbookEntry,
+          uid: generateUID(),
+          characterId: newAgent.id,
+          keys: entry.keys ?? [],
+          comment: entry.comment ?? "",
+          content: entry.content ?? "",
+          enabled: entry.enabled ?? true,
+        }));
+
         agentList.value.unshift(newAgent);
-        if (parsedWorldInfoEntries.length > 0) {
-          worldbookEntries.value.push(...parsedWorldInfoEntries);
+        if (finalEntries.length > 0) {
+          worldbookEntries.value.push(...finalEntries);
         }
 
-        // 3. 激活新角色
         activeAgentId.value = newAgent.id;
-
         alert(`角色 "${newAgent.name}" 导入成功！`);
       } catch (error) {
         alert(`导入角色卡失败: ${error.message}`);

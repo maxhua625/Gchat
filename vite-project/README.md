@@ -1,5 +1,98 @@
-# Vue 3 + Vite
+# Gchat - 高级 AI 对话应用
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Gchat 是一个使用 Vue 3 + Vite 构建的高度可定制化的前端 AI 聊天应用，配备了一个基于 Node.js + Express 的轻量级后端 API 网关。它不仅仅是一个简单的聊天界面，更是一个强大的、支持多角色、多会话、深度自定义上下文（通过预设和世界书）的综合性 AI 交互平台。
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+## 核心功能
+
+- **多模型支持**: 通过统一的设置界面，可以轻松配置并连接到多个主流 AI 服务（如 OpenAI, Google Gemini, DeepSeek）以及任何兼容 OpenAI 格式的自定义 API。
+- **高级角色系统**: 支持创建、编辑和管理多个 AI 角色（智能体）。
+- **角色卡导入**: 完美兼容 [SillyTavern](https://github.com/SillyTavern/SillyTavern) 的角色卡格式，支持通过 `.json` 或 `.png` 文件一键导入角色及其完整的世界观设定。
+- **分层世界书**: 强大的世界书系统，分为“角色专属”和“全局”两种类型，允许为每个角色或所有对话定义详细的背景设定和触发规则。
+- **深度预设系统**: 允许用户创建和管理包含模型参数、复杂提示词注入链的预设文件，以精确控制 AI 的行为和输出格式。
+- **多会话聊天管理**: 每个角色都可以拥有多个独立的、可持久化的聊天会话。用户可以在这些会话之间自由切换、新建或删除。
+- **丰富的聊天交互**: 支持编辑用户和 AI 的发言、重新生成回复、删除指定消息等高级功能。
+
+## 项目架构
+
+本项目采用前后端分离的经典架构：
+
+- **前端 (`/`)**: 基于 **Vite** 构建的 **Vue 3** 单页面应用，使用 **Pinia** 进行状态管理，**Vue Router** 进行页面导航。
+- **后端 (`/backend`)**: 基于 **Node.js** 和 **Express** 构建的 API 网关。它的核心职责是接收前端的请求，安全地附加上 API 密钥，并通过本地网络代理（如 VPN）将请求转发给真正的 AI 服务器，从而解决了前端的跨域和密钥安全问题。
+
+## 如何运行
+
+### 1. 启动后端 API 网关
+
+```bash
+# 进入后端目录
+cd backend
+
+# 安装依赖
+npm install
+
+# (重要) 根据你的 VPN 代理配置，修改 server.js 文件中的 proxyUrl
+# const proxyUrl = 'http://127.0.0.1:7890'; // 将 7890 修改为你的 HTTP 代理端口
+
+# 启动服务器
+npm start
+```
+
+后端服务将运行在 `http://localhost:3000`。
+
+### 2. 启动前端应用
+
+```bash
+# 回到项目根目录
+cd ..
+
+# 安装依赖 (如果尚未安装)
+npm install
+
+# 启动开发服务器
+npm run dev
+```
+
+前端应用将运行在 `http://localhost:5173` (或终端提示的其他端口)。
+
+---
+
+## 核心文件详解
+
+### 📁 `backend` - 后端 API 网关
+
+- 📄 **`server.js`**: **后端的心脏**。这是一个基于 Express 的 Node.js 服务器，它定义了多个 API 路由（如 `/api/openai`, `/api/gemini` 等）。当它收到前端的请求时，它会根据路由，构建一个指向真正 AI 服务（如 `api.openai.com`）的请求，附加上从前端传来的 API 密钥，并通过 `https-proxy-agent` 使用您配置的本地代理（VPN）将请求发送出去。它完美地解决了前端的所有网络限制和安全问题。
+- 📄 **`package.json`**: 定义了后端的依赖（`express`, `axios`, `cors` 等）和启动脚本。`"type": "module"` 这一行至关重要，它让 Node.js 可以使用现代的 `import` 语法。
+
+### 📁 `src` - 前端核心代码
+
+#### 📁 `src/api` - API 服务层
+
+- 📄 **`request.js`**: 这是前端所有网络请求的**统一出口**。它创建并配置了一个 `axios` 实例，其 `baseURL` 固定指向我们自己的后端 `http://localhost:3000`。所有 API 服务都通过这个实例来与后端通信。
+- 📁 **`services/*.js`** (例如 `openai.js`, `gemini.js`): 这是一个“服务目录”。每个文件都对应一个 AI 提供商，并封装了与该提供商相关的具体 API 调用。例如，`openai.js` 包含了 `fetchOpenAIChatCompletion` 和 `fetchOpenAIModels` 两个函数，它们的作用是构建好请求参数，然后调用后端的 `/api/openai/...` 路由。这种封装让业务代码（如 `ChatView.vue`）变得非常清晰。
+- 📄 **`index.js`**: 一个“聚合器”。它导入所有 `services` 目录下的服务，并将它们统一导出为一个 `api` 对象，方便在应用的任何地方通过 `import api from '@/api'` 来使用。
+
+#### 📁 `src/stores` - Pinia 状态管理中心
+
+这是整个应用的数据大脑，所有跨页面共享的数据都存储在这里。`pinia-plugin-persistedstate` 插件会自动将这些数据保存到浏览器的 `localStorage` 中，实现持久化。
+
+- 📄 **`characterStore.js`**: **角色管理的核心**。负责存储角色列表、当前激活的角色 ID。最关键的是，它包含了**导入 SillyTavern 角色卡的复杂逻辑**，能够解析 `.json` 和 `.png` 文件，提取角色信息，并联动 `worldbookStore` 来导入角色专属的世界书。
+- 📄 **`chatStore.js`**: **会话管理的核心**。它存储一个包含所有聊天会话的数组 (`chats`)。每个会话对象都包含自己的历史记录 (`history`) 并与一个角色 ID (`characterId`) 绑定。它提供了新建、切换、删除聊天以及在当前会话中增删改消息的所有方法。
+- 📄 **`presetsStore.js`**: 负责管理用户的“预设”列表。包含新建、删除、切换和**从 `.json` 文件导入预设**的逻辑。
+- 📄 **`settingsStore.js`**: 负责管理 API 设置，存储用户为 OpenAI, Gemini 等不同提供商配置的 API 密钥和连接状态。
+- 📄 **`worldbookStore.js`**: **世界书管理的核心**。负责存储一个包含所有世界书条目的扁平化数组 (`entries`)。每个条目都通过 `characterId` (为 `null` 时表示全局) 来区分归属。它提供了增删改、以及**从角色卡导入时接收处理好的数据**的方法。
+
+#### 📁 `src/views` - 页面组件
+
+- 📄 **`ChatView.vue`**: **应用的主界面**。它通过组合使用上述所有 store 来工作。其核心是 `buildFinalMessages` 函数，该函数在每次发送消息前，会按照“角色设定 -> 世界书 -> 预设 -> 聊天历史”的顺序，智能地构建出最终的、完整的上下文，然后通过 `api` 服务发送给后端。它还包含了聊天管理菜单的所有交互逻辑。
+- 📄 **`CharacterView.vue`**: **统一的角色与世界书管理中心**。这是 Gchat 最强大的页面之一。左侧是角色列表的管理，右侧是一个集成了标签页的编辑器，允许用户在当前角色的“专属世界书”和“全局世界书”之间切换，并对条目进行增删改和拖拽排序。
+- 📄 **`PresetsView.vue`**: 预设编辑器。提供了一个强大的界面来管理模型参数和复杂的提示词注入表格。
+- 📄 **`SettingsView.vue`**: API 设置页面。提供了一个统一的下拉菜单来选择和配置不同的 AI 提供商。
+
+#### 📁 `src/components` - 可复用组件
+
+- 📄 **`Message.vue`**: **聊天消息组件**。这是一个高度可复用的组件，负责渲染单条聊天消息。它包含了极其丰富的逻辑，如：根据角色（用户/AI）显示在左侧或右侧、显示楼层号、鼠标悬停时显示编辑和重新生成按钮、在“选择模式”下显示复选框、以及在编辑模式下切换为文本输入框等。
+
+#### 📄 **`main.js` & `App.vue`**
+
+- 📄 **`main.js`**: **Vue 应用的入口点**。它负责初始化 Vue 实例，并“安装” Vue Router 和 Pinia，让它们在整个应用中可用。
+- 📄 **`App.vue`**: **应用的根组件**。它定义了整个应用的宏观布局，包含了顶部的导航栏 (`<nav>`) 和一个 `<RouterView>`，后者是所有页面组件的渲染出口。
