@@ -1,19 +1,16 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-// (关键修复) 导入我们新的、统一的 agentStore
 import { useAgentStore } from "./agentStore";
 
 export const useChatStore = defineStore(
   "chat",
   () => {
-    // --- State ---
     const chats = ref([]);
     const activeChatId = ref(null);
     const selectedMessages = ref(new Set());
     const editingMessageId = ref(null);
     const isSelectionModeActive = ref(false);
 
-    // --- Getters ---
     const activeChat = computed(() =>
       chats.value.find((chat) => chat.id === activeChatId.value)
     );
@@ -21,31 +18,38 @@ export const useChatStore = defineStore(
       activeChat.value ? activeChat.value.history : []
     );
 
-    // --- Actions ---
-
-    // (关键修复) 开始一个与特定智能体关联的新聊天
     function startNewChat() {
-      // 从 agentStore 中获取激活的智能体
       const agentStore = useAgentStore();
       const activeAgent = agentStore.activeAgent;
 
       if (!activeAgent) {
-        alert("错误：没有激活的智能体！请先在“智能体管理”页面选择或创建一个。");
+        alert("错误：没有激活的角色！请先在“角色”页面选择或创建一个角色。");
         return;
       }
+
+      // 组合所有可用的问候语
+      let greetings = [activeAgent.first_mes];
+      if (
+        activeAgent.alternate_greetings &&
+        activeAgent.alternate_greetings.length > 0
+      ) {
+        greetings = greetings.concat(activeAgent.alternate_greetings);
+      }
+      greetings = greetings.filter((g) => g && g.trim()); // 过滤掉空的问候语
+
+      // 随机选择一条问候语，如果列表为空则提供默认值
+      const selectedGreeting =
+        greetings.length > 0
+          ? greetings[Math.floor(Math.random() * greetings.length)]
+          : "你好！";
 
       const newChatId = crypto.randomUUID();
       const newChat = {
         id: newChatId,
-        // 将聊天与智能体 ID 绑定
         characterId: activeAgent.id,
         name: `${activeAgent.name} - 新的聊天`,
         history: [
-          {
-            id: "floor-0",
-            role: "assistant",
-            content: activeAgent.first_mes || "你好！",
-          },
+          { id: "floor-0", role: "assistant", content: selectedGreeting },
         ],
         createdAt: new Date().toISOString(),
       };
@@ -104,7 +108,6 @@ export const useChatStore = defineStore(
       isSelectionModeActive.value = false;
     }
 
-    // (关键修复) 切换聊天时，同时更新 agentStore 中的激活 ID
     function switchChat(chatId) {
       const chat = chats.value.find((c) => c.id === chatId);
       if (chat) {
@@ -176,21 +179,6 @@ export const useChatStore = defineStore(
     };
   },
   {
-    persist: {
-      serializer: {
-        serialize: (state) => {
-          const serializedState = JSON.parse(JSON.stringify(state));
-          serializedState.selectedMessages = Array.from(state.selectedMessages);
-          return JSON.stringify(serializedState);
-        },
-        deserialize: (str) => {
-          const deserializedState = JSON.parse(str);
-          deserializedState.selectedMessages = new Set(
-            deserializedState.selectedMessages
-          );
-          return deserializedState;
-        },
-      },
-    },
+    persist: true,
   }
 );
