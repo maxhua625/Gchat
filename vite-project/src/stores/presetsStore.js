@@ -1,114 +1,127 @@
 import { defineStore } from "pinia";
-import { ref, computed } from "vue";
+import { v4 as uuidv4 } from "uuid";
 
-const defaultPreset = {
-  name: "新建预设",
-  // --- 原有参数 ---
-  temperature: 1,
+// 1. 创建一个返回初始状态的函数，这是修复响应性问题的关键
+const getInitialState = () => ({
+  // 基本采样参数
+  temperature: 1.15,
   frequency_penalty: 0,
   presence_penalty: 0,
-  top_p: 1,
+  top_p: 0.98,
   top_k: 40,
+  top_a: 0,
+  min_p: 0,
   repetition_penalty: 1,
+  seed: -1,
+  n: 1,
 
-  // --- (关键新增) 新的模型参数 ---
-  max_context_tokens: 4096, // 上下文长度
-  max_tokens: 2048, // 最大回复长度
-  n: 1, // 备选回复数
-  stream: true, // 是否流式传输
-  image_support: false, // 是否能发送图片 (前端控制)
-  request_chain_of_thought: false, // 是否请求思维链 (前端控制)
+  // 模型上下文和Token限制
+  openai_max_context: 1000000,
+  openai_max_tokens: 65535,
+  max_context_unlocked: true,
 
-  // --- 原有提示词 ---
-  prompts: [
-    {
-      name: "主提示词",
-      system_prompt: true,
-      role: "user",
-      content: "请在这里输入你的主提示词...",
-      enabled: true,
-      injection_position: 0,
-      injection_depth: 4,
-      forbid_overrides: false,
+  // 格式化与行为控制
+  wrap_in_quotes: false,
+  names_behavior: 0,
+  send_if_empty: "",
+  impersonation_prompt:
+    "[Write your next reply from the point of view of {{user}}, using the chat history so far as a guideline for the writing style of {{user}}. Write 1 reply only in internet RP style. Don't write as {{char}} or system. Don't describe actions of {{char}}.]",
+  new_chat_prompt: "",
+  new_group_chat_prompt: "",
+  new_example_chat_prompt: "",
+  continue_nudge_prompt:
+    "[Continue the following message. Do not include ANY parts of the original message. Use capitalization and punctuation as if your reply is a part of the original message: {{lastChatMessage}}]",
+  group_nudge_prompt: "",
+  wi_format: "{0}",
+  scenario_format: "[Circumstances and context of the dialogue: {{scenario}}]",
+  personality_format: "[{{char}}'s personality: {{personality}}]",
+
+  // API 和代理
+  reverse_proxy: "",
+  proxy_password: "",
+  api_url_scale: "",
+
+  // 提示词 (Prompts) 管理
+  prompts: [],
+  prompt_order: [],
+  bias_preset_selected: "Default (none)",
+
+  // 高级/实验性功能
+  stream_openai: false,
+  show_external_models: false,
+  assistant_prefill: "",
+  assistant_impersonation: "",
+  claude_use_sysprompt: false,
+  use_makersuite_sysprompt: false,
+  use_alt_scale: false,
+  squash_system_messages: false,
+  image_inlining: true,
+  inline_image_quality: "low",
+  bypass_status_check: false,
+  continue_prefill: true,
+  continue_postfix: " ",
+  function_calling: true,
+  show_thoughts: false,
+  reasoning_effort: "auto",
+  enable_web_search: false,
+  request_images: false,
+});
+
+export const usePresetsStore = defineStore("presets", {
+  state: () => getInitialState(),
+
+  actions: {
+    // 2. 重写加载逻辑，以保证响应性并避免状态污染
+    loadPresetData(data) {
+      console.log("Loading preset data:", data);
+      // 创建一个干净的、全新的状态对象副本
+      const newState = getInitialState();
+
+      // 将导入数据(data)的键值合并到新状态对象中
+      for (const key in newState) {
+        if (data.hasOwnProperty(key)) {
+          newState[key] = data[key];
+        }
+      }
+
+      // 使用 $patch 安全地应用所有更改，这会保留响应性
+      this.$patch(newState);
+      console.log("Preset loaded and state patched.");
     },
-  ],
-};
 
-export const usePresetsStore = defineStore(
-  "presets",
-  () => {
-    const presetsList = ref([JSON.parse(JSON.stringify(defaultPreset))]);
-    const activePresetIndex = ref(0);
+    // 添加一个新的空提示
+    addPrompt() {
+      this.prompts.push({
+        name: "New Prompt",
+        system_prompt: false,
+        role: "user",
+        content: "",
+        identifier: uuidv4(),
+        forbid_overrides: false,
+        injection_position: 0,
+        injection_depth: 4,
+        injection_order: 100,
+        enabled: true,
+        marker: false,
+      });
+    },
 
-    const activePreset = computed(
-      () => presetsList.value[activePresetIndex.value]
-    );
+    // 3. 添加删除提示的 action
+    deletePrompt(identifier) {
+      this.prompts = this.prompts.filter((p) => p.identifier !== identifier);
+      // 可选：同时从 prompt_order 中移除
+      this.prompt_order.forEach((characterOrder) => {
+        characterOrder.order = characterOrder.order.filter(
+          (item) => item.identifier !== identifier
+        );
+      });
+    },
 
-    function addNewPreset() {
-      const newPreset = JSON.parse(JSON.stringify(defaultPreset));
-      newPreset.name = `新建预设 ${presetsList.value.length + 1}`;
-      presetsList.value.push(newPreset);
-      activePresetIndex.value = presetsList.value.length - 1;
-    }
-
-    function deletePreset(index) {
-      if (presetsList.value.length <= 1) {
-        alert("至少需要保留一个预设！");
-        return;
-      }
-      presetsList.value.splice(index, 1);
-      if (activePresetIndex.value >= index) {
-        activePresetIndex.value = Math.max(0, activePresetIndex.value - 1);
-      }
-    }
-
-    function importPreset(jsonData) {
-      try {
-        const importedData = JSON.parse(jsonData);
-        if (!importedData.prompts || !Array.isArray(importedData.prompts)) {
-          throw new Error("无效的预设文件格式，缺少 prompts 数组。");
-        }
-
-        importedData.prompts.forEach((prompt) => {
-          if (prompt.enabled === undefined) prompt.enabled = true;
-          if (prompt.injection_position === undefined)
-            prompt.injection_position = 0;
-          if (prompt.injection_depth === undefined) prompt.injection_depth = 4;
-          if (prompt.forbid_overrides === undefined)
-            prompt.forbid_overrides = false;
-          if (prompt.system_prompt === undefined) prompt.system_prompt = false;
-        });
-
-        // (关键修改) 为导入的数据补充可能缺失的新参数
-        Object.keys(defaultPreset).forEach((key) => {
-          if (importedData[key] === undefined) {
-            importedData[key] = defaultPreset[key];
-          }
-        });
-
-        if (!importedData.name) {
-          importedData.name = `导入的预设 ${new Date().toLocaleTimeString()}`;
-        }
-
-        presetsList.value.push(importedData);
-        activePresetIndex.value = presetsList.value.length - 1;
-        alert("预设导入成功！");
-      } catch (error) {
-        alert(`导入失败: ${error.message}`);
-        console.error(error);
-      }
-    }
-
-    return {
-      presetsList,
-      activePresetIndex,
-      activePreset,
-      addNewPreset,
-      deletePreset,
-      importPreset,
-    };
+    // Action 来重置状态为默认值
+    resetToDefaults() {
+      this.$patch(getInitialState());
+      console.log("State has been reset to defaults.");
+    },
   },
-  {
-    persist: true,
-  }
-);
+  persist: true,
+});

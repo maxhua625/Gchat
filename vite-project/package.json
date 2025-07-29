@@ -15,7 +15,9 @@
     "markdown-it": "^14.1.0",
     "pinia-plugin-persistedstate": "^4.4.1",
     "png-chunks-extract": "^1.0.0",
-    "vue": "^3.5.17"
+    "uuid": "^11.1.0",
+    "vue": "^3.5.17",
+    "vuedraggable": "^4.1.0"
   },
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",

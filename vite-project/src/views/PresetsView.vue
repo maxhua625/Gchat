@@ -1,599 +1,573 @@
 <template>
-  <div class="page-layout">
-    <aside class="sidebar">
-      <h3>预设列表</h3>
-      <ul>
-        <li
-          v-for="(preset, index) in store.presetsList"
-          :key="index"
-          :class="{ active: store.activePresetIndex === index }"
-          @click="store.activePresetIndex = index"
-        >
-          {{ preset.name || `预设 ${index + 1}` }}
-          <button @click.stop="store.deletePreset(index)" class="delete-btn">
-            ×
-          </button>
-        </li>
-      </ul>
-      <div class="sidebar-actions">
-        <button @click="store.addNewPreset">新建预设</button>
-        <button @click="triggerImport">导入预设 (.json)</button>
-        <input
-          type="file"
-          ref="fileInput"
-          @change="handleFileUpload"
-          accept=".json"
-          style="display: none"
-        />
-      </div>
-    </aside>
+  <div class="presets-view">
+    <h1>模型参数预设</h1>
+    <p class="description">
+      在这里调整和管理模型的各项参数。您可以导入、导出或保存当前设置为默认值。
+    </p>
 
-    <main class="editor-content" v-if="activePreset">
-      <div class="editor-header">
-        <input
-          type="text"
-          v-model="activePreset.name"
-          class="preset-name-input"
-        />
-      </div>
+    <!-- ... [顶部的按钮和参数设置区域保持不变] ... -->
+    <div class="actions">
+      <input
+        type="file"
+        @change="handleFileUpload"
+        accept=".json"
+        ref="fileInput"
+        style="display: none"
+      />
+      <button @click="triggerFileUpload">导入预设</button>
+      <button @click="exportPreset">导出预设</button>
+      <button @click="saveAsDefault">保存为默认</button>
+    </div>
 
-      <!-- (关键修改) 全面升级和中文化的模型参数区域 -->
-      <section class="editor-section">
-        <h4>模型参数</h4>
-        <div class="param-grid">
-          <!-- 数值型参数 -->
-          <div class="form-group" v-for="param in modelParams" :key="param.key">
-            <label :for="param.key" :title="param.description">{{
-              param.label
-            }}</label>
-            <input
-              :id="param.key"
-              type="number"
-              v-model.number="activePreset[param.key]"
-              :step="param.step"
-              :min="param.min"
-              :max="param.max"
-            />
-          </div>
-          <!-- 开关型参数 -->
-          <div
-            class="form-group switch-group"
-            v-for="param in switchParams"
-            :key="param.key"
+    <div class="settings-grid">
+      <!-- 核心采样参数 -->
+      <fieldset>
+        <legend>核心采样参数 (Core Sampling)</legend>
+        <div class="form-group">
+          <label for="temperature"
+            >Temperature: {{ presetsStore.temperature }}</label
           >
-            <label :for="param.key" :title="param.description">{{
-              param.label
-            }}</label>
-            <label class="switch">
-              <input
-                :id="param.key"
-                type="checkbox"
-                v-model="activePreset[param.key]"
-              />
-              <span class="slider round"></span>
-            </label>
+          <input
+            type="range"
+            id="temperature"
+            min="0"
+            max="2"
+            step="0.01"
+            v-model.number="presetsStore.temperature"
+          />
+        </div>
+        <div class="form-group">
+          <label for="top_p">Top P: {{ presetsStore.top_p }}</label>
+          <input
+            type="range"
+            id="top_p"
+            min="0"
+            max="1"
+            step="0.01"
+            v-model.number="presetsStore.top_p"
+          />
+        </div>
+        <div class="form-group">
+          <label for="top_k">Top K: {{ presetsStore.top_k }}</label>
+          <input
+            type="range"
+            id="top_k"
+            min="0"
+            max="100"
+            step="1"
+            v-model.number="presetsStore.top_k"
+          />
+        </div>
+        <div class="form-group">
+          <label for="top_a">Top A: {{ presetsStore.top_a }}</label>
+          <input
+            type="range"
+            id="top_a"
+            min="0"
+            max="1"
+            step="0.01"
+            v-model.number="presetsStore.top_a"
+          />
+        </div>
+        <div class="form-group">
+          <label for="min_p">Min P: {{ presetsStore.min_p }}</label>
+          <input
+            type="range"
+            id="min_p"
+            min="0"
+            max="1"
+            step="0.01"
+            v-model.number="presetsStore.min_p"
+          />
+        </div>
+        <div class="form-group">
+          <label for="repetition_penalty"
+            >Repetition Penalty: {{ presetsStore.repetition_penalty }}</label
+          >
+          <input
+            type="range"
+            id="repetition_penalty"
+            min="1"
+            max="2"
+            step="0.01"
+            v-model.number="presetsStore.repetition_penalty"
+          />
+        </div>
+        <div class="form-group">
+          <label for="frequency_penalty"
+            >Frequency Penalty: {{ presetsStore.frequency_penalty }}</label
+          >
+          <input
+            type="range"
+            id="frequency_penalty"
+            min="0"
+            max="2"
+            step="0.01"
+            v-model.number="presetsStore.frequency_penalty"
+          />
+        </div>
+        <div class="form-group">
+          <label for="presence_penalty"
+            >Presence Penalty: {{ presetsStore.presence_penalty }}</label
+          >
+          <input
+            type="range"
+            id="presence_penalty"
+            min="0"
+            max="2"
+            step="0.01"
+            v-model.number="presetsStore.presence_penalty"
+          />
+        </div>
+        <div class="form-group">
+          <label for="seed">Seed (-1 for random)</label>
+          <input type="number" id="seed" v-model.number="presetsStore.seed" />
+        </div>
+      </fieldset>
+
+      <!-- 上下文与格式化 -->
+      <fieldset>
+        <legend>上下文与格式化 (Context & Formatting)</legend>
+        <div class="form-group">
+          <label for="openai_max_tokens">Max Tokens</label>
+          <input
+            type="number"
+            id="openai_max_tokens"
+            v-model.number="presetsStore.openai_max_tokens"
+          />
+        </div>
+        <div class="form-group">
+          <label for="impersonation_prompt">Impersonation Prompt</label>
+          <textarea
+            id="impersonation_prompt"
+            rows="3"
+            v-model="presetsStore.impersonation_prompt"
+          ></textarea>
+        </div>
+        <div class="form-group">
+          <label for="continue_nudge_prompt">Continue Nudge Prompt</label>
+          <textarea
+            id="continue_nudge_prompt"
+            rows="3"
+            v-model="presetsStore.continue_nudge_prompt"
+          ></textarea>
+        </div>
+        <div class="form-group checkbox-group">
+          <input
+            type="checkbox"
+            id="wrap_in_quotes"
+            v-model="presetsStore.wrap_in_quotes"
+          />
+          <label for="wrap_in_quotes">Wrap in Quotes</label>
+        </div>
+      </fieldset>
+
+      <!-- API & 高级选项 -->
+      <fieldset>
+        <legend>API & 高级选项 (Advanced Options)</legend>
+        <div class="form-group">
+          <label for="reverse_proxy">Reverse Proxy URL</label>
+          <input
+            type="text"
+            id="reverse_proxy"
+            v-model.trim="presetsStore.reverse_proxy"
+          />
+        </div>
+        <div class="form-group checkbox-group">
+          <input
+            type="checkbox"
+            id="stream_openai"
+            v-model="presetsStore.stream_openai"
+          />
+          <label for="stream_openai">Stream OpenAI</label>
+        </div>
+        <div class="form-group checkbox-group">
+          <input
+            type="checkbox"
+            id="function_calling"
+            v-model="presetsStore.function_calling"
+          />
+          <label for="function_calling">Enable Function Calling</label>
+        </div>
+        <div class="form-group checkbox-group">
+          <input
+            type="checkbox"
+            id="image_inlining"
+            v-model="presetsStore.image_inlining"
+          />
+          <label for="image_inlining">Enable Image Inlining</label>
+        </div>
+        <div class="form-group checkbox-group">
+          <input
+            type="checkbox"
+            id="enable_web_search"
+            v-model="presetsStore.enable_web_search"
+          />
+          <label for="enable_web_search">Enable Web Search</label>
+        </div>
+      </fieldset>
+    </div>
+
+    <!-- 提示词管理界面 (完全重构) -->
+    <div class="prompt-management-area">
+      <h2>提示词管理 (Prompts Management)</h2>
+
+      <!-- 按角色分组显示排序后的提示 -->
+      <div
+        v-for="charOrder in presetsStore.prompt_order"
+        :key="charOrder.character_id"
+        class="character-prompt-group"
+      >
+        <h3 class="character-title">
+          角色 (Character ID): {{ charOrder.character_id }} 的提示顺序
+        </h3>
+        <draggable
+          v-model="charOrder.order"
+          item-key="identifier"
+          class="prompt-list draggable"
+          ghost-class="ghost"
+          handle=".handle"
+        >
+          <template #item="{ element: orderItem }">
+            <div class="prompt-card">
+              <!-- 查找并显示完整的 Prompt 详细信息 -->
+              <div
+                v-if="getPromptDetails(orderItem.identifier)"
+                class="prompt-card-content"
+              >
+                <div class="prompt-header">
+                  <span class="handle">⠿</span>
+                  <span class="prompt-name">{{
+                    getPromptDetails(orderItem.identifier).name
+                  }}</span>
+                  <div class="prompt-controls">
+                    <!-- v-model 直接绑定到 prompt_order 里的 enabled 属性 -->
+                    <input
+                      type="checkbox"
+                      :id="orderItem.identifier + charOrder.character_id"
+                      v-model="orderItem.enabled"
+                      class="prompt-toggle"
+                    />
+                    <label :for="orderItem.identifier + charOrder.character_id"
+                      >启用</label
+                    >
+                  </div>
+                </div>
+                <div class="prompt-content">
+                  <textarea readonly rows="3">{{
+                    getPromptDetails(orderItem.identifier).content
+                  }}</textarea>
+                </div>
+              </div>
+              <!-- 如果在 prompts 库中找不到对应的 identifier -->
+              <div v-else class="prompt-card-error">
+                <p>
+                  <strong>错误：</strong>在提示库中找不到 Identifier 为
+                  <code>{{ orderItem.identifier }}</code> 的提示。
+                </p>
+              </div>
+            </div>
+          </template>
+        </draggable>
+      </div>
+
+      <!-- 显示未被使用的提示 -->
+      <div class="unassigned-prompts-group" v-if="unassignedPrompts.length">
+        <h3 class="character-title">未使用的提示 (Available Prompts)</h3>
+        <div class="prompt-list">
+          <div
+            v-for="prompt in unassignedPrompts"
+            :key="prompt.identifier"
+            class="prompt-card unassigned"
+          >
+            <div class="prompt-header">
+              <span class="prompt-name">{{ prompt.name }}</span>
+              <div class="prompt-controls">
+                <button
+                  class="add-btn"
+                  @click="addPromptToCharacter(prompt.identifier)"
+                >
+                  添加到角色
+                </button>
+              </div>
+            </div>
+            <div class="prompt-content">
+              <textarea readonly rows="3">{{ prompt.content }}</textarea>
+            </div>
           </div>
         </div>
-      </section>
-
-      <section class="editor-section">
-        <h4>提示词注入 (Prompts)</h4>
-        <!-- 提示词表格保持不变 -->
-        <div class="prompts-table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th title="是否启用">启</th>
-                <th>名称</th>
-                <th>角色</th>
-                <th class="content-col">内容</th>
-                <th title="注入位置">位置</th>
-                <th title="注入深度">深度</th>
-                <th title="禁止覆盖">禁</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody @drop="handleDrop" @dragover.prevent @dragenter.prevent>
-              <template
-                v-for="(prompt, index) in activePreset.prompts"
-                :key="index"
-              >
-                <tr
-                  v-if="prompt.name && prompt.name.includes('——分隔线——')"
-                  class="divider-row"
-                >
-                  <td colspan="8">
-                    <div class="divider-content">
-                      <span>{{ prompt.name }}</span>
-                    </div>
-                  </td>
-                </tr>
-                <tr
-                  v-else
-                  :draggable="true"
-                  @dragstart="handleDragStart($event, index)"
-                  @dragover="handleDragOver($event, index)"
-                  @dragleave="handleDragLeave"
-                  @dragend="handleDragEnd"
-                  :class="[
-                    getPromptRowClass(prompt),
-                    { 'drag-over-highlight': dragOverIndex === index },
-                  ]"
-                  class="draggable-row"
-                >
-                  <td><input type="checkbox" v-model="prompt.enabled" /></td>
-                  <td>
-                    <input
-                      type="text"
-                      v-model="prompt.name"
-                      class="table-input"
-                    />
-                  </td>
-                  <td>
-                    <select v-model="prompt.role" class="table-select">
-                      <option>system</option>
-                      <option>user</option>
-                      <option>assistant</option>
-                    </select>
-                  </td>
-                  <td class="content-col">
-                    <textarea
-                      v-model="prompt.content"
-                      class="table-textarea"
-                    ></textarea>
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      v-model.number="prompt.injection_position"
-                      class="table-input-small"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      v-model.number="prompt.injection_depth"
-                      class="table-input-small"
-                    />
-                  </td>
-                  <td>
-                    <input type="checkbox" v-model="prompt.forbid_overrides" />
-                  </td>
-                  <td>
-                    <button
-                      @click="deletePrompt(index)"
-                      class="delete-btn-small"
-                    >
-                      删除
-                    </button>
-                  </td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-        <button @click="addPrompt" class="add-prompt-btn">添加新提示词</button>
-      </section>
-    </main>
+      </div>
+      <div class="actions">
+        <button @click="presetsStore.addPrompt()">
+          创建新提示 (在'未使用'中)
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed } from "vue";
 import { usePresetsStore } from "@/stores/presetsStore";
+import draggable from "vuedraggable"; // 引入 draggable
 
-const store = usePresetsStore();
+const presetsStore = usePresetsStore();
 const fileInput = ref(null);
-const draggedIndex = ref(null);
-const dragOverIndex = ref(null);
 
-// (关键修改) 更新参数列表并中文化
-const modelParams = ref([
-  {
-    key: "temperature",
-    label: "温度 (Temperature)",
-    description: "随机性，值越高越随机，越富有创造力。",
-    step: 0.01,
-    min: 0,
-    max: 2,
-  },
-  {
-    key: "top_p",
-    label: "核心采样 (Top P)",
-    description: "保留概率最高的词汇，直到总概率达到该值。",
-    step: 0.01,
-    min: 0,
-    max: 1,
-  },
-  {
-    key: "top_k",
-    label: "Top K",
-    description: "在每一步生成中，只考虑 K 个最可能的词。",
-    step: 1,
-    min: 0,
-  },
-  {
-    key: "repetition_penalty",
-    label: "重复惩罚",
-    description: "对重复出现的词进行惩罚，值越高越不易重复。",
-    step: 0.01,
-    min: 0,
-  },
-  {
-    key: "frequency_penalty",
-    label: "频率惩罚",
-    description: "对出现频率高的词进行惩罚，降低模型生成常用词的概率。",
-    step: 0.01,
-    min: 0,
-    max: 2,
-  },
-  {
-    key: "presence_penalty",
-    label: "存在惩罚",
-    description: "对已出现过的词进行惩罚，鼓励模型引入新概念。",
-    step: 0.01,
-    min: 0,
-    max: 2,
-  },
-  {
-    key: "max_context_tokens",
-    label: "上下文长度",
-    description: "每次请求发送给模型的最大历史消息长度（以 Token 计）。",
-    step: 1,
-    min: 0,
-  },
-  {
-    key: "max_tokens",
-    label: "最大回复长度",
-    description: "模型单次回复生成的最大 Token 数量。",
-    step: 1,
-    min: 0,
-  },
-  {
-    key: "n",
-    label: "备选回复数",
-    description:
-      "为一条用户消息生成 N 个不同的回复以供选择 (注意: 这会消耗 N 倍的 Token)。",
-    step: 1,
-    min: 1,
-    max: 5,
-  },
-]);
-
-const switchParams = ref([
-  {
-    key: "stream",
-    label: "流式传输",
-    description: "是否让模型以打字机的效果逐字返回内容。",
-  },
-  {
-    key: "image_support",
-    label: "发送图片",
-    description: "（前端功能）是否允许在聊天框中发送图片（需要模型支持）。",
-  },
-  {
-    key: "request_chain_of_thought",
-    label: "请求思维链",
-    description: "（前端功能）是否在请求中加入引导模型进行思考的指令。",
-  },
-]);
-
-const activePreset = computed(() => store.activePreset);
-
-// ... 其他函数 (getPromptRowClass, addPrompt, deletePrompt, triggerImport, handleFileUpload, 拖拽函数) 保持不变
-const getPromptRowClass = (prompt) => {
-  if (!prompt.name) return "";
-  if (prompt.name.includes("✅")) return "prompt-type-exclusive";
-  if (prompt.name.includes("🔓")) return "prompt-type-jailbreak";
-  if (prompt.name.includes("☑️")) return "prompt-type-optional";
-  if (prompt.name.includes("🔵")) return "prompt-type-semifixed";
-  return "";
+// Helper function to find full prompt details by identifier
+const getPromptDetails = (identifier) => {
+  return presetsStore.prompts.find((p) => p.identifier === identifier);
 };
-const addPrompt = () => {
-  if (!activePreset.value.prompts) activePreset.value.prompts = [];
-  activePreset.value.prompts.push({
-    name: "新提示词",
-    role: "system",
-    content: "",
-    enabled: true,
-    injection_position: 0,
-    injection_depth: 4,
-    forbid_overrides: false,
+
+// Computed property to find prompts that are not in any prompt_order
+const unassignedPrompts = computed(() => {
+  const allOrderedIdentifiers = new Set(
+    presetsStore.prompt_order.flatMap((charOrder) =>
+      charOrder.order.map((item) => item.identifier)
+    )
+  );
+  return presetsStore.prompts.filter(
+    (p) => !allOrderedIdentifiers.has(p.identifier)
+  );
+});
+
+// Function to add an unassigned prompt to a character's order
+const addPromptToCharacter = (identifier) => {
+  if (!presetsStore.prompt_order || presetsStore.prompt_order.length === 0) {
+    alert("请先确保至少有一个角色排序列表存在！");
+    return;
+  }
+  // 简单起见，默认添加到第一个角色的列表末尾
+  const targetCharacterOrder = presetsStore.prompt_order[0];
+  targetCharacterOrder.order.push({
+    identifier: identifier,
+    enabled: true, // 默认启用
   });
 };
-const deletePrompt = (index) => {
-  activePreset.value.prompts.splice(index, 1);
-};
-const triggerImport = () => {
+
+const triggerFileUpload = (event) => {
   fileInput.value.click();
 };
+
 const handleFileUpload = (event) => {
   const file = event.target.files[0];
-  if (!file) return;
+  if (!file) {
+    return;
+  }
   const reader = new FileReader();
   reader.onload = (e) => {
-    store.importPreset(e.target.result);
-    event.target.value = "";
+    try {
+      const data = JSON.parse(e.target.result);
+      presetsStore.loadPresetData(data);
+      alert("预设导入成功！");
+    } catch (error) {
+      alert("导入失败，请检查文件格式是否为正确的JSON。");
+      console.error("Preset import error:", error);
+    }
   };
   reader.readAsText(file);
 };
-const handleDragStart = (event, index) => {
-  draggedIndex.value = index;
-  event.dataTransfer.effectAllowed = "move";
-  event.dataTransfer.setData("text/plain", index);
+
+const exportPreset = () => {
+  const data = JSON.stringify(presetsStore.$state, null, 2);
+  const blob = new Blob([data], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "gchat-preset.json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 };
-const handleDragOver = (event, index) => {
-  event.preventDefault();
-  if (index !== draggedIndex.value) {
-    dragOverIndex.value = index;
-  }
-};
-const handleDragLeave = () => {
-  dragOverIndex.value = null;
-};
-const handleDrop = (event) => {
-  event.preventDefault();
-  const startIndex = parseInt(event.dataTransfer.getData("text/plain"), 10);
-  const targetIndex = dragOverIndex.value;
-  if (targetIndex !== null && startIndex !== targetIndex) {
-    const prompts = activePreset.value.prompts;
-    const [draggedItem] = prompts.splice(startIndex, 1);
-    prompts.splice(targetIndex, 0, draggedItem);
-  }
-  handleDragEnd();
-};
-const handleDragEnd = () => {
-  draggedIndex.value = null;
-  dragOverIndex.value = null;
+
+const saveAsDefault = () => {
+  alert("当前设置已保存，下次打开时将自动加载。");
 };
 </script>
 
 <style scoped>
-/* (关键新增) 开关 (Switch) 的样式 */
-.switch-group {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 50px;
-  height: 28px;
-}
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #ccc;
-  transition: 0.4s;
-}
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 20px;
-  width: 20px;
-  left: 4px;
-  bottom: 4px;
-  background-color: white;
-  transition: 0.4s;
-}
-input:checked + .slider {
-  background-color: #2196f3;
-}
-input:focus + .slider {
-  box-shadow: 0 0 1px #2196f3;
-}
-input:checked + .slider:before {
-  transform: translateX(22px);
-}
-.slider.round {
-  border-radius: 34px;
-}
-.slider.round:before {
-  border-radius: 50%;
-}
-
-/* 其他样式保持不变，只微调 */
-.param-grid {
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-} /* 稍微加宽以容纳中文 */
-.sidebar {
-  width: 260px;
-} /* 稍微加宽 */
-th {
-  font-size: 0.8em;
-} /* 缩小表头字体以容纳更多列 */
-.page-layout {
-  display: flex;
-  height: 100%;
-}
-.sidebar {
-  flex-shrink: 0;
-  background-color: #e9ecef;
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid #dee2e6;
-}
-.sidebar h3 {
-  margin-top: 0;
-}
-.sidebar ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  flex-grow: 1;
-}
-.sidebar li {
-  padding: 0.75rem 1rem;
-  margin-bottom: 0.5rem;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.sidebar li:hover {
-  background-color: #dee2e6;
-}
-.sidebar li.active {
-  background-color: #007bff;
-  color: white;
-}
-.sidebar-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-.sidebar-actions button {
-  width: 100%;
-}
-.editor-content {
-  flex-grow: 1;
+/* ... [之前的样式保持不变] ... */
+.presets-view {
   padding: 2rem;
-  overflow-y: auto;
-  background: #fff;
+  max-width: 1200px;
+  margin: 0 auto;
+  color: #333;
 }
-.editor-header {
+.description {
   margin-bottom: 2rem;
+  color: #666;
 }
-.preset-name-input {
-  font-size: 1.8rem;
-  font-weight: bold;
-  border: none;
-  border-bottom: 2px solid #ccc;
-  width: 100%;
-  padding: 0.5rem 0;
-}
-.editor-section {
-  margin-bottom: 2.5rem;
-}
-.editor-section h4 {
-  border-bottom: 1px solid #eee;
-  padding-bottom: 0.5rem;
-  margin-bottom: 1.5rem;
-}
-.form-group label {
-  font-weight: bold;
-  color: #555;
-}
-.form-group input[type="number"] {
-  font-size: 1rem;
-}
-.prompts-table-wrapper {
-  max-height: 500px;
-  overflow-y: auto;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-th,
-td {
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  text-align: left;
-  vertical-align: top;
-}
-th {
-  background-color: #f8f9fa;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-.table-input,
-.table-textarea,
-.table-select {
-  width: 100%;
-  border: 1px solid #eee;
-  padding: 0.5rem;
-  border-radius: 4px;
-  font-size: 0.9em;
-}
-.table-input-small {
-  width: 60px;
-}
-.table-textarea {
-  min-height: 80px;
-  resize: vertical;
-}
-.content-col {
-  width: 45%;
-}
-.delete-btn {
-  background: none;
-  border: none;
-  color: #dc3545;
-  font-size: 1.2rem;
-  cursor: pointer;
-  display: none;
-}
-li:hover .delete-btn,
-li.active .delete-btn {
-  display: block;
-}
-.delete-btn-small {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-}
-.add-prompt-btn {
-  margin-top: 1rem;
+.actions {
+  margin-bottom: 2rem;
+  display: flex;
+  gap: 1rem;
 }
 button {
-  padding: 0.5rem 1rem;
+  padding: 0.8rem 1.5rem;
   border: none;
   background-color: #007bff;
-  color: #fff;
-  border-radius: 4px;
+  color: white;
+  border-radius: 5px;
   cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.2s;
 }
 button:hover {
   background-color: #0056b3;
 }
-.draggable-row {
-  cursor: grab;
-  user-select: none;
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 2rem;
+  margin-bottom: 2rem;
 }
-.draggable-row:active {
+fieldset {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1.5rem;
+  background-color: #f9f9f9;
+}
+legend {
+  font-weight: bold;
+  font-size: 1.2rem;
+  padding: 0 0.5rem;
+  color: #007bff;
+}
+.form-group {
+  margin-bottom: 1.5rem;
+}
+.form-group:last-child {
+  margin-bottom: 0;
+}
+label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+input[type="range"] {
+  width: 100%;
+  cursor: pointer;
+}
+input[type="number"],
+input[type="text"],
+textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+textarea {
+  resize: vertical;
+}
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.checkbox-group input[type="checkbox"] {
+  width: auto;
+}
+/* --- 新的提示词管理样式 --- */
+.prompt-management-area {
+  margin-top: 2rem;
+  border-top: 2px solid #007bff;
+  padding-top: 1.5rem;
+}
+.character-prompt-group,
+.unassigned-prompts-group {
+  margin-bottom: 2.5rem;
+}
+.character-title {
+  font-size: 1.4rem;
+  color: #333;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #eee;
+}
+.prompt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.draggable .prompt-card {
+  cursor: grab;
+}
+.ghost {
+  opacity: 0.5;
+  background: #c8ebfb;
+}
+.prompt-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background-color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 0.2s;
+}
+.prompt-card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+.prompt-card.unassigned {
+  border-left: 4px solid #fdab3d;
+}
+.prompt-card-content {
+  padding: 1rem;
+}
+.prompt-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1rem;
+  gap: 1rem;
+}
+.handle {
+  font-size: 1.5rem;
+  color: #aaa;
+  cursor: grab;
+}
+.handle:active {
   cursor: grabbing;
 }
-.drag-over-highlight {
-  border-top: 2px solid #007bff;
-}
-.divider-row td {
-  padding: 0;
-  border-left: none;
-  border-right: none;
-}
-.divider-content {
-  text-align: center;
-  color: #888;
-  padding: 0.5rem;
-  background-color: #f8f9fa;
+.prompt-name {
+  font-size: 1.1rem;
   font-weight: bold;
+  flex-grow: 1; /* 让名字占据多余空间 */
 }
-.prompt-type-exclusive {
-  background-color: rgba(40, 167, 69, 0.1);
+.prompt-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  white-space: nowrap; /* 防止换行 */
 }
-.prompt-type-jailbreak {
-  background-color: rgba(220, 53, 69, 0.1);
+.prompt-controls label {
+  margin-bottom: 0;
+  user-select: none;
+  cursor: pointer;
 }
-.prompt-type-optional {
-  background-color: rgba(255, 193, 7, 0.1);
+.prompt-toggle {
+  width: 1.2em;
+  height: 1.2em;
+  cursor: pointer;
 }
-.prompt-type-semifixed {
-  background-color: rgba(0, 123, 255, 0.1);
+.add-btn {
+  background-color: #28a745;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.9rem;
+}
+.add-btn:hover {
+  background-color: #218838;
+}
+.prompt-content textarea {
+  background-color: #f8f9fa;
+  color: #333;
+  border-color: #ddd;
+  font-family: monospace;
+}
+.prompt-card-error {
+  padding: 1rem;
+  background-color: #f8d7da;
+  color: #721c24;
+  border-radius: 8px;
 }
 </style>
