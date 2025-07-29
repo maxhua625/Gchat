@@ -1,6 +1,5 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-import { useAgentStore } from "./agentStore";
 
 export const useChatStore = defineStore(
   "chat",
@@ -18,42 +17,25 @@ export const useChatStore = defineStore(
       activeChat.value ? activeChat.value.history : []
     );
 
-    function startNewChat() {
-      const agentStore = useAgentStore();
-      const activeAgent = agentStore.activeAgent;
-
-      if (!activeAgent) {
-        alert("错误：没有激活的角色！请先在“角色”页面选择或创建一个角色。");
+    function startNewChat(agent) {
+      if (!agent) {
+        console.error("无法创建新聊天：没有提供智能体信息。");
         return;
       }
-
-      // 组合所有可用的问候语
-      let greetings = [activeAgent.first_mes];
-      if (
-        activeAgent.alternate_greetings &&
-        activeAgent.alternate_greetings.length > 0
-      ) {
-        greetings = greetings.concat(activeAgent.alternate_greetings);
-      }
-      greetings = greetings.filter((g) => g && g.trim()); // 过滤掉空的问候语
-
-      // 随机选择一条问候语，如果列表为空则提供默认值
-      const selectedGreeting =
-        greetings.length > 0
-          ? greetings[Math.floor(Math.random() * greetings.length)]
-          : "你好！";
-
       const newChatId = crypto.randomUUID();
       const newChat = {
         id: newChatId,
-        characterId: activeAgent.id,
-        name: `${activeAgent.name} - 新的聊天`,
+        agentId: agent.id,
+        name: `${agent.name} - 新的聊天`,
         history: [
-          { id: "floor-0", role: "assistant", content: selectedGreeting },
+          {
+            id: "floor-0",
+            role: "assistant",
+            content: agent.first_mes || "你好！",
+          },
         ],
         createdAt: new Date().toISOString(),
       };
-
       chats.value.unshift(newChat);
       activeChatId.value = newChatId;
       selectedMessages.value.clear();
@@ -61,14 +43,11 @@ export const useChatStore = defineStore(
     }
 
     function addMessage(message) {
-      if (!activeChat.value) {
-        startNewChat();
-        if (!activeChat.value) return;
-      }
+      if (!activeChat.value) return;
       const messageWithId = { ...message, id: crypto.randomUUID() };
       if (activeChat.value.history.length === 1 && message.role === "user") {
-        const agentName = useAgentStore().activeAgent?.name || "未知角色";
-        activeChat.value.name = `${agentName} - ${message.content.substring(
+        const chatNamePrefix = activeChat.value.name.split(" - ")[0];
+        activeChat.value.name = `${chatNamePrefix} - ${message.content.substring(
           0,
           20
         )}`;
@@ -76,48 +55,25 @@ export const useChatStore = defineStore(
       activeChat.value.history.push(messageWithId);
     }
 
+    function ensureChatExists(agent) {
+      if (!agent) return;
+      const existingChatForAgent = chats.value.find(
+        (c) => c.agentId === agent.id
+      );
+      if (existingChatForAgent) {
+        activeChatId.value = existingChatForAgent.id;
+      } else {
+        startNewChat(agent);
+      }
+      selectedMessages.value.clear();
+      isSelectionModeActive.value = false;
+    }
+
     function updateMessageContent(messageId, newContent) {
       if (!activeChat.value) return;
       const message = activeChat.value.history.find((m) => m.id === messageId);
       if (message) message.content = newContent;
     }
-
-    function ensureChatExists() {
-      const agentStore = useAgentStore();
-      const activeAgentId = agentStore.activeAgentId;
-
-      if (!activeAgentId && agentStore.agentList.length > 0) {
-        agentStore.activeAgentId = agentStore.agentList[0].id;
-      }
-
-      const existingChatForAgent = chats.value.find(
-        (c) => c.characterId === agentStore.activeAgentId
-      );
-
-      if (existingChatForAgent) {
-        activeChatId.value = existingChatForAgent.id;
-      } else if (agentStore.activeAgentId) {
-        startNewChat();
-      } else if (chats.value.length > 0) {
-        activeChatId.value = chats.value[0].id;
-      } else {
-        startNewChat();
-      }
-
-      selectedMessages.value.clear();
-      isSelectionModeActive.value = false;
-    }
-
-    function switchChat(chatId) {
-      const chat = chats.value.find((c) => c.id === chatId);
-      if (chat) {
-        useAgentStore().activeAgentId = chat.characterId;
-        activeChatId.value = chatId;
-        selectedMessages.value.clear();
-        isSelectionModeActive.value = false;
-      }
-    }
-
     function toggleSelectionMode() {
       isSelectionModeActive.value = !isSelectionModeActive.value;
       if (!isSelectionModeActive.value) selectedMessages.value.clear();
@@ -127,7 +83,7 @@ export const useChatStore = defineStore(
       if (index === -1) return;
       chats.value.splice(index, 1);
       if (activeChatId.value === chatId) {
-        ensureChatExists();
+        activeChatId.value = null;
       }
     }
     function toggleMessageSelection(messageId) {
@@ -167,11 +123,10 @@ export const useChatStore = defineStore(
       activeChat,
       activeChatHistory,
       startNewChat,
-      switchChat,
-      deleteChat,
       addMessage,
       updateMessageContent,
       toggleSelectionMode,
+      deleteChat,
       toggleMessageSelection,
       deleteSelectedMessages,
       removeLastAssistantMessage,
@@ -179,6 +134,21 @@ export const useChatStore = defineStore(
     };
   },
   {
-    persist: true,
+    persist: {
+      serializer: {
+        serialize: (state) => {
+          const s = {
+            ...state,
+            selectedMessages: Array.from(state.selectedMessages),
+          };
+          return JSON.stringify(s);
+        },
+        deserialize: (str) => {
+          const s = JSON.parse(str);
+          s.selectedMessages = new Set(s.selectedMessages);
+          return s;
+        },
+      },
+    },
   }
 );
