@@ -146,6 +146,7 @@ const buildFinalMessages = () => {
   return finalMessages;
 };
 
+// (关键修复) 核心请求逻辑现在是“防弹”的
 const executeApiCall = async () => {
   isLoading.value = true;
   const provider = settings.activeModel.provider;
@@ -154,6 +155,8 @@ const executeApiCall = async () => {
   try {
     let response;
     const modelParams = { model: settings.activeModel.modelName };
+
+    // API 调用部分保持不变
     if (provider === "gemini") {
       const contentsForAPI = {
         contents: finalMessages.map((msg) => ({
@@ -166,10 +169,6 @@ const executeApiCall = async () => {
         contentsForAPI,
         config.apiKey
       );
-      chat.addMessage({
-        role: "assistant",
-        content: response.candidates[0].content.parts[0].text.trim(),
-      });
     } else {
       const params = { ...modelParams, messages: finalMessages };
       let fetchFunc = api[provider].fetchChatCompletion;
@@ -179,15 +178,51 @@ const executeApiCall = async () => {
       } else {
         response = await fetchFunc(params, config.apiKey);
       }
-      chat.addMessage(response.choices[0].message);
+    }
+
+    // (关键修复) 在这里添加健壮的响应处理逻辑
+    if (provider === "gemini") {
+      // 使用可选链安全地访问深层属性
+      const assistantMessageText =
+        response?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (assistantMessageText) {
+        chat.addMessage({
+          role: "assistant",
+          content: assistantMessageText.trim(),
+        });
+      } else {
+        // 如果数据结构不符合预期，则显示错误
+        console.error("收到了来自 Gemini 的异常响应:", response);
+        const blockReason = response?.promptFeedback?.blockReason;
+        const errorMessage = blockReason
+          ? `回复被安全策略阻止: ${blockReason}`
+          : "收到了一个空的或无效的回复。请检查后台终端日志。";
+        chat.addMessage({
+          role: "assistant",
+          content: `获取回复失败: ${errorMessage}`,
+        });
+      }
+    } else {
+      // OpenAI 和兼容 API 的处理
+      const message = response?.choices?.[0]?.message;
+      if (message) {
+        chat.addMessage(message);
+      } else {
+        console.error("收到了来自 OpenAI 兼容 API 的异常响应:", response);
+        const errorMessage = "收到了一个空的或无效的回复。请检查后台终端日志。";
+        chat.addMessage({
+          role: "assistant",
+          content: `获取回复失败: ${errorMessage}`,
+        });
+      }
     }
   } catch (error) {
-    chat.addMessage({
-      role: "assistant",
-      content: `获取回复失败: ${
-        error.response?.data?.error?.message || error.message
-      }`,
-    });
+    // 这个 catch 块现在主要处理网络错误或后端返回的非 200 状态码
+    const errorMessage = `获取回复失败: ${
+      error.response?.data?.error?.message || error.message
+    }`;
+    chat.addMessage({ role: "assistant", content: errorMessage });
+    console.error(error);
   } finally {
     isLoading.value = false;
   }
@@ -207,10 +242,9 @@ const sendMessage = async () => {
 const handleSwitchChat = (chatId) => {
   const targetChat = chat.chats.find((c) => c.id === chatId);
   if (targetChat && targetChat.agentId !== agentStore.activeAgentId) {
-    // 确保 agent 和 chat 同步
     agentStore.activeAgentId = targetChat.agentId;
   }
-  chat.activeChatId = chatId; // 直接设置
+  chat.activeChatId = chatId;
   isMenuOpen.value = false;
 };
 
