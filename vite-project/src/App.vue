@@ -4,6 +4,8 @@
       <nav>
         <RouterLink to="/">聊天</RouterLink>
         <RouterLink to="/agents">智能体管理</RouterLink>
+        <!-- (关键新增) 添加个人页面的导航链接 -->
+        <RouterLink to="/user">个人</RouterLink>
         <RouterLink to="/presets">预设</RouterLink>
         <RouterLink to="/settings">设置</RouterLink>
       </nav>
@@ -13,12 +15,13 @@
     </main>
   </div>
 </template>
+
 <script setup>
 import { RouterLink, RouterView } from "vue-router";
 </script>
 
 <style scoped>
-/* 样式保持不变 */
+/* 您的样式，保持原样 */
 .app-wrapper {
   display: flex;
   flex-direction: column;

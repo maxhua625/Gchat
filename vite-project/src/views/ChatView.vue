@@ -1,5 +1,4 @@
 <template>
-  <!-- (渲染守卫) 只有在 activeChat 准备好之后，才渲染整个聊天界面 -->
   <div v-if="chat.activeChat" class="chat-wrapper">
     <div class="chat-info-header">
       当前角色: <strong>{{ agentStore.activeAgent?.name || "无" }}</strong> |
@@ -104,11 +103,15 @@ import { useChatStore } from "@/stores/chatStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { usePresetsStore } from "@/stores/presetsStore";
 import { useAgentStore } from "@/stores/agentStore";
+// (关键新增) 导入新的 userStore
+import { useUserStore } from "@/stores/userStore";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
 const presets = usePresetsStore();
 const agentStore = useAgentStore();
+// (关键新增) 创建 userStore 实例
+const userStore = useUserStore();
 
 const userInput = ref("");
 const isLoading = ref(false);
@@ -120,13 +123,14 @@ const agentChats = computed(() => {
   return chat.chats.filter((c) => c.agentId === agentStore.activeAgentId);
 });
 
-// (关键修复) 这是一个全新的、健壮的、遵循您设定的规则的上下文构建函数
+// (关键修改) 这是最终的、支持“个人设定”的上下文构建函数
 const buildFinalMessages = (regenerateFromMessage = null) => {
   const finalMessages = [];
   const activePreset = presets.activePreset;
   const activeAgent = agentStore.activeAgent;
+  // 获取个人设定
+  const userPersona = userStore.persona;
 
-  // 如果预设或角色不存在，则优雅降级，只返回历史记录
   if (!activeAgent || !activePreset?.prompt_order) {
     return regenerateFromMessage
       ? chat.activeChatHistory.slice(
@@ -138,14 +142,14 @@ const buildFinalMessages = (regenerateFromMessage = null) => {
       : chat.activeChatHistory;
   }
 
+  // (关键修改) 占位符现在会动态替换为您的名字
   const replacePlaceholders = (text) => {
     if (typeof text !== "string") return "";
     return text
       .replace(/{{char}}/g, activeAgent.name)
-      .replace(/{{user}}/g, "User");
+      .replace(/{{user}}/g, userPersona.name || "User");
   };
 
-  // 根据是否重新生成，确定需要注入的历史记录部分
   const historyToInject = regenerateFromMessage
     ? chat.activeChatHistory.slice(
         0,
@@ -155,19 +159,24 @@ const buildFinalMessages = (regenerateFromMessage = null) => {
       )
     : chat.activeChatHistory;
 
-  // (核心逻辑) 严格按照 prompt_order 顺序构建上下文
   activePreset.prompt_order.forEach((orderItem) => {
-    if (!orderItem.enabled) return; // 1. 跳过禁用的模块
-
+    if (!orderItem.enabled) return;
     const promptModule = activePreset.prompts.find(
       (p) => p.identifier === orderItem.identifier
     );
-    if (!promptModule) return; // 2. 如果在库中找不到模块，跳过
+    if (!promptModule) return;
 
-    // 3. 处理“标记”模块 (动态内容)
     if (promptModule.marker) {
       if (promptModule.identifier === "chatHistory") {
         finalMessages.push(...historyToInject);
+      } else if (promptModule.identifier === "personaDescription") {
+        // (核心逻辑) 在这里注入您的个人设定！
+        if (userPersona.description) {
+          finalMessages.push({
+            role: "system",
+            content: `[User's Persona: ${userPersona.description}]`,
+          });
+        }
       } else if (
         promptModule.identifier === "worldInfoBefore" ||
         promptModule.identifier === "worldInfoAfter"
@@ -185,11 +194,7 @@ const buildFinalMessages = (regenerateFromMessage = null) => {
           }
         });
       }
-      // 在这里可以为您未来的其他标记添加逻辑
-      // else if (promptModule.identifier === 'charDescription') { ... }
-    }
-    // 4. 处理普通提示词模块 (静态内容)
-    else {
+    } else {
       if (promptModule.content) {
         finalMessages.push({
           role: promptModule.role || "system",
