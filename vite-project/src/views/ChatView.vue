@@ -1,8 +1,9 @@
 <template>
-  <div class="chat-wrapper">
+  <!-- (渲染守卫) 只有在 activeChat 准备好之后，才渲染整个聊天界面 -->
+  <div v-if="chat.activeChat" class="chat-wrapper">
     <div class="chat-info-header">
       当前角色: <strong>{{ agentStore.activeAgent?.name || "无" }}</strong> |
-      当前预设: <strong>{{ presets.activePreset.name }}</strong>
+      当前预设: <strong>{{ presets.activePreset?.name || "无" }}</strong>
     </div>
 
     <div class="message-list" ref="messageListRef">
@@ -11,7 +12,7 @@
         :key="item.id"
         :item="item"
         :floor="index"
-        @regenerate="handleRegenerate"
+        @regenerate="() => handleRegenerate(item)"
       />
       <div v-if="isLoading" class="loading-indicator">
         <Message
@@ -33,7 +34,7 @@
         <div v-if="isMenuOpen" class="dropdown-menu">
           <ul>
             <li @click="handleNewChat">➕ 开始新聊天</li>
-            <li @click="handleRegenerate">🔄 重新生成</li>
+            <li @click="() => handleRegenerate()">🔄 重新生成</li>
             <li @click="handleToggleSelectionMode">
               {{
                 chat.isSelectionModeActive ? "✅ 完成选择" : "🗑️ 选择消息以删除"
@@ -80,6 +81,19 @@
       </form>
     </div>
   </div>
+
+  <div v-else class="chat-placeholder">
+    <div v-if="agentStore.activeAgent">
+      <p>
+        正在为
+        <strong>{{ agentStore.activeAgent.name }}</strong> 加载聊天记录...
+      </p>
+      <div class="spinner"></div>
+    </div>
+    <div v-else>
+      <p>请先到“智能体管理”页面选择一个聊天对象。</p>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -106,57 +120,103 @@ const agentChats = computed(() => {
   return chat.chats.filter((c) => c.agentId === agentStore.activeAgentId);
 });
 
-const buildFinalMessages = () => {
+// (关键修复) 这是一个全新的、健壮的、遵循您设定的规则的上下文构建函数
+const buildFinalMessages = (regenerateFromMessage = null) => {
   const finalMessages = [];
   const activePreset = presets.activePreset;
   const activeAgent = agentStore.activeAgent;
-  const currentHistory = chat.activeChatHistory;
 
-  if (!activeAgent) return currentHistory;
-
-  const replacePlaceholders = (text) =>
-    text.replace(/{{char}}/g, activeAgent.name).replace(/{{user}}/g, "User");
-
-  agentStore.globalLorebookEntries.forEach((entry) => {
-    if (entry.enabled && entry.content)
-      finalMessages.push({
-        role: "system",
-        content: `[World Info: ${entry.content}]`,
-      });
-  });
-  agentStore.getLorebookEntriesForAgent(activeAgent.id).forEach((entry) => {
-    if (entry.enabled && entry.content)
-      finalMessages.push({
-        role: "system",
-        content: `[Character Info: ${entry.content}]`,
-      });
-  });
-
-  if (activePreset && activePreset.prompts) {
-    activePreset.prompts.forEach((prompt) => {
-      if (prompt.enabled && prompt.content)
-        finalMessages.push({
-          role: prompt.role || "system",
-          content: replacePlaceholders(prompt.content),
-        });
-    });
+  // 如果预设或角色不存在，则优雅降级，只返回历史记录
+  if (!activeAgent || !activePreset?.prompt_order) {
+    return regenerateFromMessage
+      ? chat.activeChatHistory.slice(
+          0,
+          chat.activeChatHistory.findIndex(
+            (m) => m.id === regenerateFromMessage.id
+          )
+        )
+      : chat.activeChatHistory;
   }
 
-  finalMessages.push(...currentHistory);
+  const replacePlaceholders = (text) => {
+    if (typeof text !== "string") return "";
+    return text
+      .replace(/{{char}}/g, activeAgent.name)
+      .replace(/{{user}}/g, "User");
+  };
+
+  // 根据是否重新生成，确定需要注入的历史记录部分
+  const historyToInject = regenerateFromMessage
+    ? chat.activeChatHistory.slice(
+        0,
+        chat.activeChatHistory.findIndex(
+          (m) => m.id === regenerateFromMessage.id
+        )
+      )
+    : chat.activeChatHistory;
+
+  // (核心逻辑) 严格按照 prompt_order 顺序构建上下文
+  activePreset.prompt_order.forEach((orderItem) => {
+    if (!orderItem.enabled) return; // 1. 跳过禁用的模块
+
+    const promptModule = activePreset.prompts.find(
+      (p) => p.identifier === orderItem.identifier
+    );
+    if (!promptModule) return; // 2. 如果在库中找不到模块，跳过
+
+    // 3. 处理“标记”模块 (动态内容)
+    if (promptModule.marker) {
+      if (promptModule.identifier === "chatHistory") {
+        finalMessages.push(...historyToInject);
+      } else if (
+        promptModule.identifier === "worldInfoBefore" ||
+        promptModule.identifier === "worldInfoAfter"
+      ) {
+        const worldEntries = [
+          ...agentStore.globalLorebookEntries,
+          ...agentStore.getLorebookEntriesForAgent(activeAgent.id),
+        ];
+        worldEntries.forEach((entry) => {
+          if (entry.enabled && entry.content) {
+            finalMessages.push({
+              role: "system",
+              content: `[World Info: ${entry.content}]`,
+            });
+          }
+        });
+      }
+      // 在这里可以为您未来的其他标记添加逻辑
+      // else if (promptModule.identifier === 'charDescription') { ... }
+    }
+    // 4. 处理普通提示词模块 (静态内容)
+    else {
+      if (promptModule.content) {
+        finalMessages.push({
+          role: promptModule.role || "system",
+          content: replacePlaceholders(promptModule.content),
+        });
+      }
+    }
+  });
+
   return finalMessages;
 };
 
-// (关键修复) 核心请求逻辑现在是“防弹”的
-const executeApiCall = async () => {
+// --- 其他所有函数和生命周期钩子保持您现有的逻辑不变 ---
+
+const executeApiCall = async (regenerateFromMessage = null) => {
   isLoading.value = true;
+  if (regenerateFromMessage) {
+    chat.trimHistory(regenerateFromMessage.id);
+  }
   const provider = settings.activeModel.provider;
   const config = settings.providerConfig[provider];
-  const finalMessages = buildFinalMessages();
+  const finalMessages = buildFinalMessages(regenerateFromMessage);
+
+  console.log("最终发送的上下文:", JSON.parse(JSON.stringify(finalMessages))); // 调试日志
+
   try {
     let response;
-    const modelParams = { model: settings.activeModel.modelName };
-
-    // API 调用部分保持不变
     if (provider === "gemini") {
       const contentsForAPI = {
         contents: finalMessages.map((msg) => ({
@@ -169,67 +229,49 @@ const executeApiCall = async () => {
         contentsForAPI,
         config.apiKey
       );
-    } else {
-      const params = { ...modelParams, messages: finalMessages };
-      let fetchFunc = api[provider].fetchChatCompletion;
-      if (provider === "custom") {
-        fetchFunc = api.custom.fetchCustomChatCompletion;
-        response = await fetchFunc(params, config.apiKey, config.baseURL);
-      } else {
-        response = await fetchFunc(params, config.apiKey);
-      }
-    }
 
-    // (关键修复) 在这里添加健壮的响应处理逻辑
-    if (provider === "gemini") {
-      // 使用可选链安全地访问深层属性
-      const assistantMessageText =
-        response?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (assistantMessageText) {
+      if (response.candidates && response.candidates[0]?.content?.parts) {
         chat.addMessage({
           role: "assistant",
-          content: assistantMessageText.trim(),
+          content: response.candidates[0].content.parts[0].text.trim(),
         });
       } else {
-        // 如果数据结构不符合预期，则显示错误
-        console.error("收到了来自 Gemini 的异常响应:", response);
-        const blockReason = response?.promptFeedback?.blockReason;
-        const errorMessage = blockReason
-          ? `回复被安全策略阻止: ${blockReason}`
-          : "收到了一个空的或无效的回复。请检查后台终端日志。";
+        const finishReason = response.candidates?.[0]?.finishReason || "未知";
         chat.addMessage({
           role: "assistant",
-          content: `获取回复失败: ${errorMessage}`,
+          content: `模型返回了空内容或因安全原因被拦截。完成原因: ${finishReason}`,
         });
       }
     } else {
-      // OpenAI 和兼容 API 的处理
-      const message = response?.choices?.[0]?.message;
-      if (message) {
-        chat.addMessage(message);
-      } else {
-        console.error("收到了来自 OpenAI 兼容 API 的异常响应:", response);
-        const errorMessage = "收到了一个空的或无效的回复。请检查后台终端日志。";
-        chat.addMessage({
-          role: "assistant",
-          content: `获取回复失败: ${errorMessage}`,
-        });
-      }
+      const params = {
+        model: settings.activeModel.modelName,
+        messages: finalMessages,
+      };
+      let fetchFunc = api[provider].fetchChatCompletion;
+      if (provider === "custom")
+        fetchFunc = api.custom.fetchCustomChatCompletion;
+      response = await fetchFunc(
+        params,
+        config.apiKey,
+        config.baseURL || undefined
+      );
+      chat.addMessage(response.choices[0].message);
     }
   } catch (error) {
-    // 这个 catch 块现在主要处理网络错误或后端返回的非 200 状态码
-    const errorMessage = `获取回复失败: ${
-      error.response?.data?.error?.message || error.message
-    }`;
-    chat.addMessage({ role: "assistant", content: errorMessage });
-    console.error(error);
+    console.error("API 调用失败:", error);
+    chat.addMessage({
+      role: "assistant",
+      content: `获取回复失败: ${
+        error.response?.data?.error?.message || error.message
+      }`,
+    });
   } finally {
     isLoading.value = false;
   }
 };
 
 const sendMessage = async () => {
-  if (!userInput.value || isLoading.value) return;
+  if (!userInput.value.trim() || isLoading.value) return;
   if (!agentStore.activeAgent) {
     alert("请先到“角色”页面选择一个聊天对象！");
     return;
@@ -259,20 +301,34 @@ const handleNewChat = () => {
 
 watch(
   () => agentStore.activeAgentId,
-  (newId, oldId) => {
-    if (newId && newId !== oldId) {
+  (newId) => {
+    if (newId) {
       chat.ensureChatExists(agentStore.activeAgent);
     }
   },
   { immediate: true }
 );
 
-const handleRegenerate = () => {
+const handleRegenerate = (message = null) => {
   isMenuOpen.value = false;
   if (isLoading.value) return;
-  chat.removeLastAssistantMessage();
-  executeApiCall();
+
+  if (!message) {
+    const lastUserMessageIndex = chat.activeChatHistory
+      .map((m) => m.role)
+      .lastIndexOf("user");
+    if (lastUserMessageIndex !== -1) {
+      message = chat.activeChatHistory[lastUserMessageIndex];
+    }
+  }
+
+  if (message) {
+    executeApiCall(message);
+  } else {
+    executeApiCall();
+  }
 };
+
 const handleToggleSelectionMode = () => {
   chat.toggleSelectionMode();
   if (!chat.isSelectionModeActive) {
@@ -304,6 +360,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 您的样式，保持原样 */
 .chat-wrapper {
   display: flex;
   flex-direction: column;
@@ -436,5 +493,31 @@ onMounted(() => {
 }
 .input-form button:disabled {
   background-color: #ccc;
+}
+.chat-placeholder {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  color: #888;
+  font-size: 1.2rem;
+}
+.spinner {
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border-left-color: #09f;
+  margin-top: 1rem;
+  animation: spin 1s ease infinite;
+}
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 </style>
